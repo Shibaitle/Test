@@ -1,9 +1,10 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 import cv2
 import pytesseract
 import Levenshtein
 import os
+import numpy as np
 
 # Handle Pillow deprecation warning for LANCZOS
 from PIL import Image, ImageTk
@@ -18,7 +19,7 @@ class ImageTextComparator:
     def __init__(self, root):
         self.root = root
         self.root.title("Image Text Comparison Tool")
-        self.root.geometry("900x600")
+        self.root.geometry("950x700")  # Increased size for better viewing
         self.root.configure(bg="#f0f0f0")
         
         # Initialize variables
@@ -26,13 +27,35 @@ class ImageTextComparator:
         self.image2_path = None
         self.image1_text = ""
         self.image2_text = ""
+        self.image1_cv = None  # Original CV2 image
+        self.image2_cv = None  # Original CV2 image
         
         # Language selection variables
         self.lang1_var = tk.StringVar(value="eng")  # Default to English for image 1
         self.lang2_var = tk.StringVar(value="eng")  # Default to English for image 2
         
+        # Create notebook for tabs
+        self.notebook = ttk.Notebook(root)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Tab 1: Text comparison
+        self.text_tab = tk.Frame(self.notebook, bg="#f0f0f0")
+        self.notebook.add(self.text_tab, text="Text Comparison")
+        
+        # Tab 2: Visual comparison
+        self.visual_tab = tk.Frame(self.notebook, bg="#f0f0f0")
+        self.notebook.add(self.visual_tab, text="Visual Comparison")
+        
+        # Setup text comparison tab
+        self.setup_text_tab()
+        
+        # Setup visual comparison tab
+        self.setup_visual_tab()
+        
+    def setup_text_tab(self):
+        """Setup the text comparison tab"""
         # Create main frame
-        self.main_frame = tk.Frame(root, bg="#f0f0f0")
+        self.main_frame = tk.Frame(self.text_tab, bg="#f0f0f0")
         self.main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
         # Create frames for images
@@ -95,6 +118,10 @@ class ImageTextComparator:
         self.compare_btn = tk.Button(self.action_frame, text="Compare Text", command=self.compare_text, bg="#4CAF50", fg="white", padx=10, pady=5)
         self.compare_btn.pack(side=tk.LEFT, padx=5)
         
+        # Visual diff button
+        self.visual_diff_btn = tk.Button(self.action_frame, text="Show Visual Diff", command=self.show_visual_diff, bg="#2196F3", fg="white", padx=10, pady=5)
+        self.visual_diff_btn.pack(side=tk.LEFT, padx=5)
+        
         # Reset button
         self.reset_btn = tk.Button(self.action_frame, text="Reset", command=self.reset, bg="#f44336", fg="white", padx=10, pady=5)
         self.reset_btn.pack(side=tk.LEFT, padx=5)
@@ -126,7 +153,32 @@ class ImageTextComparator:
         self.text_frame.grid_columnconfigure(0, weight=1)
         self.text_frame.grid_columnconfigure(1, weight=1)
         self.text_frame.grid_rowconfigure(0, weight=1)
+    
+    def setup_visual_tab(self):
+        """Setup the visual comparison tab"""
+        # Create main frame for visual comparison
+        self.visual_main_frame = tk.Frame(self.visual_tab, bg="#f0f0f0")
+        self.visual_main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
+        # Create frames for visual comparison
+        self.visual_frames_container = tk.Frame(self.visual_main_frame, bg="#f0f0f0")
+        self.visual_frames_container.pack(fill=tk.BOTH, expand=True)
+        
+        # Create frame for visual difference
+        self.visual_diff_frame = tk.LabelFrame(self.visual_frames_container, text="Visual Difference Comparison", bg="#f0f0f0", padx=10, pady=10)
+        self.visual_diff_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Create image label for visual difference
+        self.visual_diff_label = tk.Label(self.visual_diff_frame, text="No visual comparison available\nClick 'Show Visual Diff' button to generate", 
+                                        bg="#e0e0e0", width=80, height=30)
+        self.visual_diff_label.pack(fill=tk.BOTH, expand=True)
+        
+        # Instructions
+        self.visual_instructions = tk.Label(self.visual_main_frame, 
+                                         text="Red areas indicate differences between the images.\nFor best results, use similar-sized images with similar content.",
+                                         bg="#f0f0f0", font=("Arial", 10))
+        self.visual_instructions.pack(pady=10)
+
     def browse_image(self, image_num):
         """Open a file dialog to select an image"""
         file_path = filedialog.askopenfilename(
@@ -136,6 +188,9 @@ class ImageTextComparator:
         
         if file_path:
             try:
+                # Store the original image for processing
+                cv_img = cv2.imread(file_path)
+                
                 # Load and resize image for display
                 img = Image.open(file_path)
                 img_aspect = img.width / img.height
@@ -157,10 +212,12 @@ class ImageTextComparator:
                 
                 if image_num == 1:
                     self.image1_path = file_path
+                    self.image1_cv = cv_img  # Store original CV2 image
                     self.image1_label.config(image=photo)
                     self.image1_label.image = photo  # Keep a reference
                 else:
                     self.image2_path = file_path
+                    self.image2_cv = cv_img  # Store original CV2 image
                     self.image2_label.config(image=photo)
                     self.image2_label.image = photo  # Keep a reference
                 
@@ -193,6 +250,7 @@ class ImageTextComparator:
             # Use pytesseract to extract text with specified language
             text = pytesseract.image_to_string(binary, lang=lang)
             
+            # Return text but preserve line breaks (only strip trailing/leading whitespace)
             return text.strip()
         
         except Exception as e:
@@ -221,56 +279,154 @@ class ImageTextComparator:
                 self.text2.insert(tk.END, "No text detected")
                 return
             
-            # Normalize text for comparison
-            text1_words = self.image1_text.split()
-            text2_words = self.image2_text.split()
+            # Split text by lines
+            text1_lines = self.image1_text.splitlines()
+            text2_lines = self.image2_text.splitlines()
             
-            # Use difflib to find differences between words
-            import difflib
-            matcher = difflib.SequenceMatcher(None, text1_words, text2_words)
+            # Display each line separately, with line numbers
+            for i, line in enumerate(text1_lines, 1):
+                self.text1.insert(tk.END, f"{i}: {line}\n")
             
-            # Display text with highlighted differences
-            for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-                if tag == 'equal':
-                    # Same text in both images - display normally
-                    self.text1.insert(tk.END, ' '.join(text1_words[i1:i2]) + ' ')
-                    self.text2.insert(tk.END, ' '.join(text2_words[j1:j2]) + ' ')
-                elif tag == 'replace':
-                    # Different text - highlight in red
-                    self.text1.insert(tk.END, ' '.join(text1_words[i1:i2]) + ' ', 'diff')
-                    self.text2.insert(tk.END, ' '.join(text2_words[j1:j2]) + ' ', 'diff')
-                elif tag == 'delete':
-                    # Text in image 1 but not in image 2
-                    self.text1.insert(tk.END, ' '.join(text1_words[i1:i2]) + ' ', 'diff')
-                elif tag == 'insert':
-                    # Text in image 2 but not in image 1
-                    self.text2.insert(tk.END, ' '.join(text2_words[j1:j2]) + ' ', 'diff')
+            for i, line in enumerate(text2_lines, 1):
+                self.text2.insert(tk.END, f"{i}: {line}\n")
+            
+            # Calculate and display similarity by joining all text
+            text1_joined = ' '.join(text1_lines).lower()
+            text2_joined = ' '.join(text2_lines).lower()
+            
+            # Compare using Levenshtein distance
+            distance = Levenshtein.distance(text1_joined, text2_joined)
+            max_len = max(len(text1_joined), len(text2_joined))
+            similarity = ((max_len - distance) / max_len) * 100 if max_len > 0 else 100
+            
+            # Compare line by line
+            num_lines = min(len(text1_lines), len(text2_lines))
+            diff_lines = []
+            for i in range(num_lines):
+                if text1_lines[i].strip() != text2_lines[i].strip():
+                    diff_lines.append(i+1)  # +1 because we use 1-based indexing for display
+            
+            # Always display similarity score regardless of result
+            if len(text1_lines) != len(text2_lines):
+                self.result_label.config(
+                    text=f"✗ Different number of lines: Image 1 ({len(text1_lines)}) vs Image 2 ({len(text2_lines)}) (Similarity: {similarity:.1f}%)", 
+                    fg="red"
+                )
+            elif diff_lines:
+                self.result_label.config(
+                    text=f"✗ Differences found in lines: {', '.join(map(str, diff_lines))} (Similarity: {similarity:.1f}%)", 
+                    fg="red"
+                )
+            elif similarity < 100:
+                self.result_label.config(
+                    text=f"✗ Differences in whitespace/formatting detected (Similarity: {similarity:.1f}%)", 
+                    fg="orange"
+                )
+            else:
+                self.result_label.config(
+                    text=f"✓ The text in both images is the same. (Similarity: 100.0%)", 
+                    fg="green"
+                )
+            
+            # Highlight different lines
+            for line_num in diff_lines:
+                # Calculate the position in the Text widget for start and end of this line
+                start_pos1 = f"{line_num}.0"
+                end_pos1 = f"{line_num}.end"
+                start_pos2 = f"{line_num}.0"
+                end_pos2 = f"{line_num}.end"
+                
+                # Apply the highlighting tag to this line
+                self.text1.tag_add('diff', start_pos1, end_pos1)
+                self.text2.tag_add('diff', start_pos2, end_pos2)
             
             # Configure text tags for highlighting
             self.text1.tag_configure('diff', background='pink', foreground='red')
             self.text2.tag_configure('diff', background='pink', foreground='red')
-            
-            # Calculate and display similarity
-            distance = Levenshtein.distance(' '.join(text1_words).lower(), ' '.join(text2_words).lower())
-            max_len = max(len(' '.join(text1_words)), len(' '.join(text2_words)))
-            similarity = ((max_len - distance) / max_len) * 100 if max_len > 0 else 100
-            
-            if similarity == 100:
-                self.result_label.config(text="✓ The text in both images is the same.", fg="green")
-            else:
-                self.result_label.config(
-                    text=f"✗ The text in the images is different. (Similarity: {similarity:.1f}%)", 
-                    fg="red"
-                )
                 
         except Exception as e:
             messagebox.showerror("Error", f"Comparison failed: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def show_visual_diff(self):
+        """Generate and display a visual difference comparison"""
+        if not self.image1_path or not self.image2_path or self.image1_cv is None or self.image2_cv is None:
+            messagebox.showwarning("Warning", "Please select both images first!")
+            return
+            
+        try:
+            # Resize images to same dimensions for comparison
+            # Get the dimensions of both images
+            h1, w1 = self.image1_cv.shape[:2]
+            h2, w2 = self.image2_cv.shape[:2]
+            
+            # Use the maximum dimensions for the comparison
+            max_height = max(h1, h2)
+            max_width = max(w1, w2)
+            
+            # Resize both images to the same dimensions
+            img1_resized = cv2.resize(self.image1_cv, (max_width, max_height))
+            img2_resized = cv2.resize(self.image2_cv, (max_width, max_height))
+            
+            # Convert to grayscale for better difference visualization
+            gray1 = cv2.cvtColor(img1_resized, cv2.COLOR_BGR2GRAY)
+            gray2 = cv2.cvtColor(img2_resized, cv2.COLOR_BGR2GRAY)
+            
+            # Calculate absolute difference between images
+            diff = cv2.absdiff(gray1, gray2)
+            
+            # Create a color diff image - black background with red differences
+            diff_color = np.zeros((max_height, max_width, 3), dtype=np.uint8)
+            diff_color[diff > 30] = [0, 0, 255]  # Red where differences are significant
+            
+            # Create a side-by-side comparison
+            img1_rgb = cv2.cvtColor(img1_resized, cv2.COLOR_BGR2RGB)
+            img2_rgb = cv2.cvtColor(img2_resized, cv2.COLOR_BGR2RGB)
+            
+            # Create a 1x3 comparison image: img1, diff, img2
+            comparison_width = max_width * 3
+            comparison_img = np.zeros((max_height, comparison_width, 3), dtype=np.uint8)
+            
+            # Place images side by side
+            comparison_img[:, :max_width] = img1_rgb
+            comparison_img[:, max_width:max_width*2] = diff_color
+            comparison_img[:, max_width*2:] = img2_rgb
+            
+            # Add text labels
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            cv2.putText(comparison_img, 'Image 1', (10, 30), font, 1, (255, 255, 255), 2)
+            cv2.putText(comparison_img, 'Differences (Red)', (max_width + 10, 30), font, 1, (255, 255, 255), 2)
+            cv2.putText(comparison_img, 'Image 2', (max_width*2 + 10, 30), font, 1, (255, 255, 255), 2)
+            
+            # Resize for display in the UI
+            display_height = 500
+            display_width = int(comparison_width * (display_height / max_height))
+            comparison_display = cv2.resize(comparison_img, (display_width, display_height))
+            
+            # Convert to PIL format for Tkinter
+            comparison_pil = Image.fromarray(comparison_display)
+            comparison_photo = ImageTk.PhotoImage(comparison_pil)
+            
+            # Update the visual diff label
+            self.visual_diff_label.config(image=comparison_photo, text='')
+            self.visual_diff_label.image = comparison_photo  # Keep a reference
+            
+            # Switch to the visual comparison tab
+            self.notebook.select(self.visual_tab)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to generate visual difference: {e}")
+            import traceback
+            traceback.print_exc()
     
     def reset(self):
         """Reset the application to its initial state"""
         # Clear images
         self.image1_path = None
         self.image2_path = None
+        self.image1_cv = None
+        self.image2_cv = None
         self.image1_label.config(image="", text="No image selected")
         self.image2_label.config(image="", text="No image selected")
         
@@ -285,9 +441,15 @@ class ImageTextComparator:
         # Reset result
         self.result_label.config(text="No comparison performed yet", fg="black")
         
+        # Reset visual diff
+        self.visual_diff_label.config(image="", text="No visual comparison available\nClick 'Show Visual Diff' button to generate")
+        
         # Clear stored text
         self.image1_text = ""
         self.image2_text = ""
+        
+        # Switch to text tab
+        self.notebook.select(self.text_tab)
 
 def main():
     # Check if tesseract is installed and configured
@@ -296,9 +458,9 @@ def main():
         # TESSERACT CONFIGURATION - MODIFY PATH BELOW TO MATCH YOUR INSTALLATION
         #=============================================================================
         # Set the path to your Tesseract OCR executable
-        # **
-        ## pytesseract.pytesseract.tesseract_cmd = r'C:/Program Files/Tesseract-OCR/tesseract.exe'
-        # **
+        # Uncomment and modify the line below if needed:
+        # pytesseract.pytesseract.tesseract_cmd = r'C:/Program Files/Tesseract-OCR/tesseract.exe'
+        # 
         # For Thai language support, ensure you have installed the Thai language pack
         # and have the 'tha.traineddata' file in your Tesseract tessdata folder
         #=============================================================================
