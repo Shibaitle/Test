@@ -2988,8 +2988,8 @@ class ExcelComparisonApp:
                 self.custom_progress_var.set(0)
                 return
             
-            # Print debug info
-            print(f"Using key columns: {key_columns}")
+            # Debug confirmation of key columns
+            print(f"Using key columns for matching: {key_columns}")
                 
             # Get selected sheets
             selected_sheets = [sheet for sheet, var in self.sheet_vars.items() if var.get()]
@@ -2999,7 +2999,7 @@ class ExcelComparisonApp:
                 self.custom_progress_var.set(0)
                 return
             
-            # Get filter values and print for debugging
+            # Get filter values
             custom_filter_values = {}
             for column, filter_data in self.custom_filters.items():
                 values = [f.get().strip() for f in filter_data['filters'] if f.get().strip()]
@@ -3011,6 +3011,9 @@ class ExcelComparisonApp:
             self.custom_status_var.set("Loading workbooks...")
             self.custom_progress_var.set(10)
             self.root.update_idletasks()
+            
+            # Force closure of any open workbooks
+            self._ensure_workbooks_closed()
             
             old_wb_raw = openpyxl.load_workbook(old_file, data_only=False)  # For preserving formulas
             old_wb_eval = openpyxl.load_workbook(old_file, data_only=True)  # For evaluating formulas
@@ -3032,11 +3035,15 @@ class ExcelComparisonApp:
                 self.root.update_idletasks()
                 
                 # Get sheet objects
-                old_sheet_raw = old_wb_raw[sheet_name]  # Contains formulas
-                old_sheet_eval = old_wb_eval[sheet_name]  # Contains formula results
-                new_sheet = new_wb[sheet_name]
+                try:
+                    old_sheet_raw = old_wb_raw[sheet_name]  # Contains formulas
+                    old_sheet_eval = old_wb_eval[sheet_name]  # Contains formula results
+                    new_sheet = new_wb[sheet_name]
+                except KeyError:
+                    messagebox.showerror("Error", f"Sheet '{sheet_name}' not found in one of the workbooks.")
+                    continue
                 
-                # Create column mappings
+                # Create column mappings from header row
                 headers = {}
                 col_to_name = {}
                 
@@ -3056,10 +3063,15 @@ class ExcelComparisonApp:
                                         f"Key column(s) not found in sheet '{sheet_name}': {', '.join(missing_columns)}")
                     continue
                 
-                # Normalize value function
+                # Function to normalize cell values for consistent comparison
                 def normalize_value(value):
                     if value is None:
                         return ""
+                    elif isinstance(value, (int, float)):
+                        # Convert numbers to strings with no decimal for integers
+                        if isinstance(value, int) or value.is_integer():
+                            return str(int(value))
+                        return str(value)
                     return str(value).strip()
                 
                 # Create keys and maps based on the pattern in the Excel file
@@ -3067,54 +3079,62 @@ class ExcelComparisonApp:
                 new_keys = {}
                 
                 # For old file - use evaluated values (formula results)
-                print(f"Processing {old_sheet_eval.max_row} rows in old sheet")
+                print(f"Processing {old_sheet_eval.max_row - header_row} rows in old sheet")
                 for row in range(header_row + 1, old_sheet_eval.max_row + 1):
                     # Build the composite key from all key columns
                     key_parts = []
+                    all_empty = True
+                    
                     for key_col in key_columns:
                         col_idx = headers[key_col]
                         value = normalize_value(old_sheet_eval.cell(row=row, column=col_idx).value)
                         key_parts.append(value)
+                        if value:  # Check if any part has content
+                            all_empty = False
                     
+                    # Skip if all key parts are empty
+                    if all_empty:
+                        continue
+                        
                     # Create composite key
                     key = "|".join(key_parts)
+                    old_keys[key] = row
                     
-                    # Only add non-empty keys (at least one component must be non-empty)
-                    if any(key_parts):
-                        old_keys[key] = row
-                        
-                    # Debug print for first few rows
-                    if row < header_row + 5:
+                    # Debug print first few rows
+                    if len(old_keys) <= 5:
                         print(f"Old sheet row {row} key: {key}")
                 
                 # For new file - use evaluated values
-                print(f"Processing {new_sheet.max_row} rows in new sheet")
+                print(f"Processing {new_sheet.max_row - header_row} rows in new sheet")
                 for row in range(header_row + 1, new_sheet.max_row + 1):
                     # Build the composite key from all key columns
                     key_parts = []
-                    valid_key = True
+                    all_empty = True
+                    invalid_key = False
                     
                     for key_col in key_columns:
-                        if key_col in headers:  # Ensure the column exists in the new file
-                            col_idx = headers[key_col]
-                            value = normalize_value(new_sheet.cell(row=row, column=col_idx).value)
-                            key_parts.append(value)
-                        else:
-                            # If column doesn't exist in new file, mark key as invalid
-                            valid_key = False
-                            key_parts.append("")
-                    
-                    # Only create keys if all columns were found
-                    if valid_key and len(key_parts) == len(key_columns):
-                        key = "|".join(key_parts)
-                        
-                        # Only add keys with at least one non-empty component
-                        if any(key_parts):
-                            new_keys[key] = row
+                        # Check if column exists in new file
+                        if key_col not in headers:
+                            invalid_key = True
+                            break
                             
-                        # Debug print for first few rows
-                        if row < header_row + 5:
-                            print(f"New sheet row {row} key: {key}")
+                        col_idx = headers[key_col]
+                        value = normalize_value(new_sheet.cell(row=row, column=col_idx).value)
+                        key_parts.append(value)
+                        if value:  # Check if any part has content
+                            all_empty = False
+                    
+                    # Skip if key is invalid or all parts are empty
+                    if invalid_key or all_empty:
+                        continue
+                        
+                    # Create composite key
+                    key = "|".join(key_parts)
+                    new_keys[key] = row
+                    
+                    # Debug print first few rows
+                    if len(new_keys) <= 5:
+                        print(f"New sheet row {row} key: {key}")
                 
                 # Find common keys
                 all_common_keys = set(old_keys.keys()).intersection(set(new_keys.keys()))
@@ -3137,10 +3157,9 @@ class ExcelComparisonApp:
                                 # Get the value from this key part
                                 value = key_parts[i]
                                 
-                                # Check if it matches any of the filter values
+                                # Check if it matches any of the filter values (case-insensitive)
                                 matches_filter = False
                                 for filter_val in custom_filter_values[key_col]:
-                                    # Case-insensitive comparison
                                     if value.lower() == filter_val.lower():
                                         matches_filter = True
                                         break
@@ -3162,24 +3181,24 @@ class ExcelComparisonApp:
                     print(f"No matching rows found in sheet {sheet_name} after applying filters")
                     continue
                 
-                # Detect formula cells - more cautious approach
+                # Detect formula cells to preserve them
                 formula_cells = set()
                 
-                # Only check the first 100 rows to improve performance
+                # Check for formulas in cells up to 100 rows past header row
                 max_formula_check_row = min(header_row + 100, old_sheet_raw.max_row + 1)
                 
+                # Find formula cells for preservation
                 for row in range(header_row + 1, max_formula_check_row):
                     for col in range(1, old_sheet_raw.max_column + 1):
                         try:
                             cell = old_sheet_raw.cell(row=row, column=col)
-                            if cell.data_type == 'f' or (isinstance(cell.value, str) and 
-                                                         cell.value.startswith('=')):
+                            if cell.data_type == 'f' or (isinstance(cell.value, str) and cell.value and cell.value.startswith('=')):
                                 formula_cells.add((row, col))
                         except Exception as e:
                             print(f"Error checking formula at ({row}, {col}): {e}")
                             continue
                 
-                print(f"Detected {len(formula_cells)} formula cells")
+                print(f"Detected {len(formula_cells)} formula cells to preserve")
                 
                 # Create a set of formula columns to avoid
                 formula_columns = set()
@@ -3198,23 +3217,26 @@ class ExcelComparisonApp:
                     old_row = old_keys[key]
                     new_row = new_keys[key]
                     
-                    # Debug output for first few updates
-                    if updates_made < 5:
-                        print(f"Processing match: old row {old_row}, new row {new_row}, key {key}")
+                    # Debug for first few updates
+                    if updates_made < 3:
+                        print(f"Comparing match: old row {old_row}, new row {new_row}, key {key}")
                     
                     cells_updated = False
                     
+                    # Loop through all columns to update
                     for col in range(1, min(old_sheet_raw.max_column, new_sheet.max_column) + 1):
                         # Skip header row
                         if old_row <= header_row:
                             continue
                         
-                        # Skip if column has no name
+                        # Skip if column has no name or is not in headers
                         if col not in col_to_name:
                             continue
                         
+                        column_name = col_to_name[col]
+                        
                         # Skip our key columns - don't update the keys themselves
-                        if col_to_name[col] in key_columns:
+                        if column_name in key_columns:
                             continue
                             
                         # Skip formula columns we identified in the mapping
@@ -3222,7 +3244,7 @@ class ExcelComparisonApp:
                             skipped_formula += 1
                             continue
                         
-                        # Skip cells that are formulas in the specific row we're updating
+                        # Skip cells with formulas
                         if (old_row, col) in formula_cells:
                             skipped_formula += 1
                             continue
@@ -3232,31 +3254,30 @@ class ExcelComparisonApp:
                             new_cell = new_sheet.cell(row=new_row, column=col)
                             old_cell = old_sheet_raw.cell(row=old_row, column=col)
                             
-                            # Additional check for formulas - be very cautious
-                            if (isinstance(old_cell.value, str) and 
-                                old_cell.value and 
-                                old_cell.value.startswith('=')):
+                            # Extra formula check (for safety)
+                            if isinstance(old_cell.value, str) and old_cell.value and old_cell.value.startswith('='):
                                 skipped_formula += 1
                                 continue
                             
-                            # Only update if values are different (convert to strings for comparison)
-                            old_value_str = str(old_cell.value) if old_cell.value is not None else ""
-                            new_value_str = str(new_cell.value) if new_cell.value is not None else ""
+                            # Compare values, handling None, empty strings, and different types
+                            old_value = old_cell.value
+                            new_value = new_cell.value
                             
-                            if old_value_str != new_value_str:
-                                # Store old value for reference
-                                old_value = old_cell.value
-                                
-                                # Debug output for first few updates
+                            # Convert to strings for comparison
+                            old_str = str(old_value) if old_value is not None else ""
+                            new_str = str(new_value) if new_value is not None else ""
+                            
+                            if old_str != new_str:
+                                # Debug for first few cell updates
                                 if updates_made < 3 and cells_updated < 3:
-                                    print(f"Updating cell ({old_row}, {col}): '{old_value}' -> '{new_cell.value}'")
+                                    print(f"Updating cell ({old_row}, {col}) {column_name}: '{old_value}' -> '{new_value}'")
                                 
-                                # Update cell
-                                old_cell.value = new_cell.value
+                                # Update the cell value
+                                old_cell.value = new_value
                                 cells_updated = True
                                 
-                                # Track cell for highlighting and popup
-                                updated_cells[sheet_name].append((old_row, col, old_value, new_cell.value))
+                                # Track for highlighting and popup
+                                updated_cells[sheet_name].append((old_row, col, old_value, new_value))
                                 
                         except Exception as e:
                             print(f"Error updating cell ({old_row}, {col}): {e}")
@@ -3332,9 +3353,13 @@ class ExcelComparisonApp:
             
             if total_updates == 0:
                 messagebox.showinfo("No Updates", 
-                                  f"No rows were updated. Please check your key columns and filters.\n\n"
-                                  f"Key columns: {', '.join(key_columns)}\n"
-                                  f"Filters: {', '.join(f'{col}: {vals}' for col, vals in custom_filter_values.items())}")
+                                  f"No rows were updated. This could be because:\n"
+                                  f"1. No matching rows were found based on your key columns\n"
+                                  f"2. The filter criteria excluded all matches\n"
+                                  f"3. No data differences were detected\n\n"
+                                  f"Key columns used: {', '.join(key_columns)}\n" +
+                                  (f"Filters applied: {', '.join(f'{col}: {vals}' for col, vals in custom_filter_values.items())}" 
+                                   if custom_filter_values else "No filters applied"))
             else:
                 # Show success message
                 key_message = f"Key columns used: {', '.join(key_columns)}"

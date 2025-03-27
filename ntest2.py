@@ -90,63 +90,59 @@ class ImageTextComparator:
         self.image2_label = tk.Label(self.right_frame, text="No image selected", bg="#e0e0e0", width=40, height=15)
         self.image2_label.pack(fill=tk.BOTH, expand=True)
         
-        # Buttons for image 1
-        self.btn_frame1 = tk.Frame(self.left_frame, bg="#f0f0f0")
-        self.btn_frame1.pack(fill=tk.X, pady=5)
-        self.browse_btn1 = tk.Button(self.btn_frame1, text="Browse", command=lambda: self.browse_image(1))
+        # Control panel for image 1
+        self.control_frame1 = tk.Frame(self.left_frame, bg="#f0f0f0")
+        self.control_frame1.pack(fill=tk.X, pady=5)
+        
+        # Browse button for image 1
+        self.browse_btn1 = tk.Button(self.control_frame1, text="Browse", command=lambda: self.browse_image(1))
         self.browse_btn1.pack(side=tk.LEFT, padx=5)
         
-        # Language selection for image 1
-        self.lang_frame1 = tk.Frame(self.btn_frame1, bg="#f0f0f0")
-        self.lang_frame1.pack(side=tk.RIGHT, padx=5)
-        self.eng_radio1 = tk.Radiobutton(self.lang_frame1, text="English", variable=self.lang1_var, value="eng", bg="#f0f0f0")
-        self.eng_radio1.pack(side=tk.LEFT)
-        self.thai_radio1 = tk.Radiobutton(self.lang_frame1, text="Thai", variable=self.lang1_var, value="tha", bg="#f0f0f0")
-        self.thai_radio1.pack(side=tk.LEFT)
-        # Add mixed language option
-        self.mixed_radio1 = tk.Radiobutton(self.lang_frame1, text="Thai+Eng", variable=self.lang1_var, value="tha+eng", bg="#f0f0f0")
-        self.mixed_radio1.pack(side=tk.LEFT)
+        # Language selection for image 1 (centered)
+        self.lang_frame1 = tk.Frame(self.control_frame1, bg="#f0f0f0")
+        self.lang_frame1.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
-        # Buttons for image 2
-        self.btn_frame2 = tk.Frame(self.right_frame, bg="#f0f0f0")
-        self.btn_frame2.pack(fill=tk.X, pady=5)
-        self.browse_btn2 = tk.Button(self.btn_frame2, text="Browse", command=lambda: self.browse_image(2))
+        self.lang_label1 = tk.Label(self.lang_frame1, text="Language:", bg="#f0f0f0")
+        self.lang_label1.pack(side=tk.LEFT)
+        
+        # Language dropdown for image 1
+        self.lang1_var = tk.StringVar(value="eng")
+        self.lang1_dropdown = ttk.Combobox(self.lang_frame1, textvariable=self.lang1_var, 
+                                           values=["eng", "tha", "tha+eng"], width=8, state="readonly")
+        self.lang1_dropdown.pack(side=tk.LEFT, padx=5)
+        
+        # Extract text button for image 1
+        self.extract_btn1 = tk.Button(self.control_frame1, text="Extract Text", 
+                                     command=lambda: self.extract_and_display(1))
+        self.extract_btn1.pack(side=tk.RIGHT, padx=5)
+        
+        # Control panel for image 2
+        self.control_frame2 = tk.Frame(self.right_frame, bg="#f0f0f0")
+        self.control_frame2.pack(fill=tk.X, pady=5)
+        
+        # Browse button for image 2
+        self.browse_btn2 = tk.Button(self.control_frame2, text="Browse", command=lambda: self.browse_image(2))
         self.browse_btn2.pack(side=tk.LEFT, padx=5)
         
-        # Language selection for image 2
-        self.lang_frame2 = tk.Frame(self.btn_frame2, bg="#f0f0f0")
-        self.lang_frame2.pack(side=tk.RIGHT, padx=5)
-        self.eng_radio2 = tk.Radiobutton(self.lang_frame2, text="English", variable=self.lang2_var, value="eng", bg="#f0f0f0")
-        self.eng_radio2.pack(side=tk.LEFT)
-        self.thai_radio2 = tk.Radiobutton(self.lang_frame2, text="Thai", variable=self.lang2_var, value="tha", bg="#f0f0f0")
-        self.thai_radio2.pack(side=tk.LEFT)
-        self.mixed_radio2 = tk.Radiobutton(self.lang_frame2, text="Thai+Eng", variable=self.lang2_var, value="tha+eng", bg="#f0f0f0")
-        self.mixed_radio2.pack(side=tk.LEFT)
+        # Language selection for image 2 (centered)
+        self.lang_frame2 = tk.Frame(self.control_frame2, bg="#f0f0f0")
+        self.lang_frame2.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
-        # Action buttons frame
-        self.action_frame = tk.Frame(self.main_frame, bg="#f0f0f0")
-        self.action_frame.pack(fill=tk.X, pady=10)
+        self.lang_label2 = tk.Label(self.lang_frame2, text="Language:", bg="#f0f0f0")
+        self.lang_label2.pack(side=tk.LEFT)
         
-        # Compare button
-        self.compare_btn = tk.Button(self.action_frame, text="Compare Text", command=self.compare_text, bg="#4CAF50", fg="white", padx=10, pady=5)
-        self.compare_btn.pack(side=tk.LEFT, padx=5)
+        # Language dropdown for image 2
+        self.lang2_var = tk.StringVar(value="eng")
+        self.lang2_dropdown = ttk.Combobox(self.lang_frame2, textvariable=self.lang2_var, 
+                                          values=["eng", "tha", "tha+eng"], width=8, state="readonly")
+        self.lang2_dropdown.pack(side=tk.LEFT, padx=5)
         
-        # Visual diff button
-        self.visual_diff_btn = tk.Button(self.action_frame, text="Show Visual Diff", command=self.show_visual_diff, bg="#2196F3", fg="white", padx=10, pady=5)
-        self.visual_diff_btn.pack(side=tk.LEFT, padx=5)
+        # Extract text button for image 2
+        self.extract_btn2 = tk.Button(self.control_frame2, text="Extract Text", 
+                                     command=lambda: self.extract_and_display(2))
+        self.extract_btn2.pack(side=tk.RIGHT, padx=5)
         
-        # Reset button
-        self.reset_btn = tk.Button(self.action_frame, text="Reset", command=self.reset, bg="#f44336", fg="white", padx=10, pady=5)
-        self.reset_btn.pack(side=tk.LEFT, padx=5)
-        
-        # Result frame
-        self.result_frame = tk.LabelFrame(self.main_frame, text="Comparison Result", bg="#f0f0f0", padx=10, pady=10)
-        self.result_frame.pack(fill=tk.X, pady=10)
-        
-        self.result_label = tk.Label(self.result_frame, text="No comparison performed yet", bg="#f0f0f0", font=("Arial", 12))
-        self.result_label.pack(pady=10)
-        
-        # Text display frame
+        # Text display areas
         self.text_frame = tk.Frame(self.main_frame, bg="#f0f0f0")
         self.text_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         
@@ -167,20 +163,17 @@ class ImageTextComparator:
         self.text1.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.text1_vscroll.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # Text area for Image 2 with scrollbar
+        # Same for image 2
         self.text_frame2 = tk.LabelFrame(self.text_frame, text="Text from Image 2", bg="#f0f0f0")
         self.text_frame2.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
         
-        # Create a frame to hold the text widget and scrollbar
         self.text2_container = tk.Frame(self.text_frame2)
         self.text2_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Add the text widget and scrollbars
         self.text2 = tk.Text(self.text2_container, height=5, width=40)
         self.text2_vscroll = ttk.Scrollbar(self.text2_container, orient=tk.VERTICAL, command=self.text2.yview)
         self.text2.configure(yscrollcommand=self.text2_vscroll.set)
         
-        # Pack the text widget and scrollbar
         self.text2.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.text2_vscroll.pack(side=tk.RIGHT, fill=tk.Y)
         
@@ -188,7 +181,33 @@ class ImageTextComparator:
         self.text_frame.grid_columnconfigure(0, weight=1)
         self.text_frame.grid_columnconfigure(1, weight=1)
         self.text_frame.grid_rowconfigure(0, weight=1)
-    
+        
+        # Action buttons
+        self.action_frame = tk.Frame(self.main_frame, bg="#f0f0f0")
+        self.action_frame.pack(fill=tk.X, pady=10)
+        
+        # Compare button
+        self.compare_btn = tk.Button(self.action_frame, text="Compare Text", 
+                                   command=self.compare_text, bg="#4CAF50", fg="white", padx=10, pady=5)
+        self.compare_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Visual diff button
+        self.visual_diff_btn = tk.Button(self.action_frame, text="Show Visual Diff", 
+                                       command=self.show_visual_diff, bg="#2196F3", fg="white", padx=10, pady=5)
+        self.visual_diff_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Reset button
+        self.reset_btn = tk.Button(self.action_frame, text="Reset", 
+                                 command=self.reset, bg="#f44336", fg="white", padx=10, pady=5)
+        self.reset_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Result frame
+        self.result_frame = tk.LabelFrame(self.main_frame, text="Comparison Result", bg="#f0f0f0", padx=10, pady=10)
+        self.result_frame.pack(fill=tk.X, pady=10)
+        
+        self.result_label = tk.Label(self.result_frame, text="No comparison performed yet", bg="#f0f0f0", font=("Arial", 12))
+        self.result_label.pack(pady=10)
+        
     def setup_visual_tab(self):
         """Setup the visual comparison tab"""
         # Create main frame for visual comparison
@@ -404,6 +423,27 @@ class ImageTextComparator:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to extract text: {e}")
             return ""
+        
+    def extract_and_display(self, image_num):
+        """Extract text from the specified image and display it in the text area"""
+        if image_num == 1:
+            if not self.image1_path:
+                messagebox.showwarning("Warning", "Please select image 1 first!")
+                return
+            language = self.lang1_var.get()
+            extracted_text = self.extract_text(self.image1_path, language)
+            self.image1_text = extracted_text
+            self.text1.delete(1.0, tk.END)
+            self.text1.insert(tk.END, extracted_text)
+        else:
+            if not self.image2_path:
+                messagebox.showwarning("Warning", "Please select image 2 first!")
+                return
+            language = self.lang2_var.get()
+            extracted_text = self.extract_text(self.image2_path, language)
+            self.image2_text = extracted_text
+            self.text2.delete(1.0, tk.END)
+            self.text2.insert(tk.END, extracted_text)
 
     def deskew(self, image):
         """Deskew (straighten) text in the image"""
