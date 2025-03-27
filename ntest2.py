@@ -340,7 +340,7 @@ class ImageTextComparator:
                 messagebox.showerror("Error", f"Failed to open image: {e}")
     
     def extract_text(self, image_path, lang="eng"):
-        """Extract text from an image using pytesseract OCR"""
+        """Extract text from an image using pytesseract OCR with enhanced preprocessing"""
         if not image_path:
             return ""
         
@@ -348,22 +348,55 @@ class ImageTextComparator:
             # Read image with OpenCV - handle non-ASCII filenames
             img = cv2.imdecode(np.fromfile(image_path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
             
-            # Convert to grayscale
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            # Convert to grayscale if needed
+            if len(img.shape) == 3:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = img.copy()
             
-            # Apply different processing based on language
+            # Resize for better OCR if image is small
+            height, width = gray.shape
+            if width < 1000 or height < 1000:
+                scale_factor = 2.0
+                gray = cv2.resize(gray, None, fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_CUBIC)
+            
+            # Apply language-specific processing
             if lang in ["tha", "tha+eng"]:
-                # For Thai or mixed: use adaptive thresholding which works better for complex scripts
+                # Thai-specific processing
+                # 1. Noise removal
+                gray = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
+                
+                # 2. Improved adaptive thresholding
                 binary = cv2.adaptiveThreshold(
                     gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                     cv2.THRESH_BINARY, 11, 2
                 )
+                
+                # 3. Remove small noise
+                kernel = np.ones((1, 1), np.uint8)
+                binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+                
+                # 4. Tesseract configuration
+                custom_config = r'--psm 6 --oem 1 -c preserve_interword_spaces=1'
             else:
-                # For English: use regular thresholding
-                _, binary = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+                # English-specific processing
+                # 1. Enhance contrast
+                gray = cv2.equalizeHist(gray)
+                
+                # 2. Noise reduction
+                gray = cv2.GaussianBlur(gray, (3, 3), 0)
+                
+                # 3. Otsu's thresholding for better binarization
+                _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                
+                # 4. Deskew if needed
+                binary = self.deskew(binary)
+                
+                # 5. Tesseract configuration
+                custom_config = r'--psm 6 --oem 3'
             
-            # Use pytesseract to extract text with specified language
-            text = pytesseract.image_to_string(binary, lang=lang)
+            # Use pytesseract with enhanced configuration
+            text = pytesseract.image_to_string(binary, lang=lang, config=custom_config)
             
             # Return text but preserve line breaks (only strip trailing/leading whitespace)
             return text.strip()
@@ -371,6 +404,35 @@ class ImageTextComparator:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to extract text: {e}")
             return ""
+
+    def deskew(self, image):
+        """Deskew (straighten) text in the image"""
+        try:
+            # Find all white pixels
+            coords = np.column_stack(np.where(image > 0))
+            
+            # Find the rotated rectangle
+            angle = cv2.minAreaRect(coords)[-1]
+            
+            # Adjust angle
+            if angle < -45:
+                angle = -(90 + angle)
+            else:
+                angle = -angle
+                
+            # Rotate the image to deskew it if needed
+            if abs(angle) > 0.5:  # Only rotate if angle is significant
+                (h, w) = image.shape[:2]
+                center = (w // 2, h // 2)
+                M = cv2.getRotationMatrix2D(center, angle, 1.0)
+                rotated = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_CUBIC, 
+                                        borderMode=cv2.BORDER_REPLICATE)
+                return rotated
+                
+            return image
+        except:
+            # If deskewing fails, return original image
+            return image
     
     def compare_text(self):
         """Extract text from both images and compare them"""
