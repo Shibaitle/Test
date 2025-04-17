@@ -7,6 +7,10 @@ import os
 import numpy as np
 from sklearn.cluster import DBSCAN
 
+import re
+from datetime import datetime
+import cv2.aruco as aruco
+
 # Handle Pillow deprecation warning for LANCZOS
 from PIL import Image, ImageTk
 try:
@@ -51,6 +55,10 @@ class ImageTextComparator:
         self.detection_tab = tk.Frame(self.notebook, bg="#f0f0f0")
         self.notebook.add(self.detection_tab, text="Advanced Detection")
         
+        # Tab 4: Bill/Slip Verification
+        self.bill_tab = tk.Frame(self.notebook, bg="#f0f0f0")
+        self.notebook.add(self.bill_tab, text="Bill Verification")
+        
         # Setup text comparison tab
         self.setup_text_tab()
         
@@ -59,6 +67,9 @@ class ImageTextComparator:
         
         # Setup counterfeit detection tab (new)
         self.setup_detection_tab()
+        
+        # Setup bill verification tab
+        self.setup_bill_verification_tab()
         
     def setup_text_tab(self):
         """Setup the text comparison tab"""
@@ -308,6 +319,100 @@ class ImageTextComparator:
                                             "Adjust sensitivity to fine-tune detection.",
                                             bg="#f0f0f0", font=("Arial", 10))
         self.detection_instructions.pack(pady=5)
+
+    def setup_bill_verification_tab(self):
+        """Setup the bill/slip verification tab"""
+        # Create main frame for bill verification
+        self.bill_main_frame = tk.Frame(self.bill_tab, bg="#f0f0f0")
+        self.bill_main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # Top section with type selection and upload
+        self.bill_type_frame = tk.LabelFrame(self.bill_main_frame, text="Document Type", bg="#f0f0f0", padx=10, pady=10)
+        self.bill_type_frame.pack(fill=tk.X, pady=10)
+        
+        # Document type selection
+        self.bill_type_var = tk.StringVar(value="banking")
+        tk.Radiobutton(self.bill_type_frame, text="Banking Slip", variable=self.bill_type_var, 
+                       value="banking", bg="#f0f0f0").pack(side=tk.LEFT, padx=5)
+        tk.Radiobutton(self.bill_type_frame, text="Payment Receipt", variable=self.bill_type_var, 
+                       value="receipt", bg="#f0f0f0").pack(side=tk.LEFT, padx=5)
+        tk.Radiobutton(self.bill_type_frame, text="QR Payment", variable=self.bill_type_var, 
+                       value="qr", bg="#f0f0f0").pack(side=tk.LEFT, padx=5)
+        
+        # Browse button
+        self.bill_browse_btn = tk.Button(self.bill_type_frame, text="Upload Document", 
+                                       command=self.browse_bill, bg="#4CAF50", fg="white", padx=10)
+        self.bill_browse_btn.pack(side=tk.RIGHT, padx=10)
+        
+        # Middle section with key verification fields
+        self.bill_verify_frame = tk.LabelFrame(self.bill_main_frame, text="Verification Parameters", bg="#f0f0f0", padx=10, pady=10)
+        self.bill_verify_frame.pack(fill=tk.X, pady=10)
+        
+        # Transaction ID verification
+        self.tx_id_frame = tk.Frame(self.bill_verify_frame, bg="#f0f0f0")
+        self.tx_id_frame.pack(fill=tk.X, pady=5)
+        tk.Label(self.tx_id_frame, text="Transaction ID:", bg="#f0f0f0", width=15, anchor="w").pack(side=tk.LEFT)
+        self.tx_id_var = tk.StringVar()
+        self.tx_id_entry = tk.Entry(self.tx_id_frame, textvariable=self.tx_id_var, width=40)
+        self.tx_id_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        self.tx_id_auto_btn = tk.Button(self.tx_id_frame, text="Auto Extract", command=lambda: self.auto_extract("tx_id"))
+        self.tx_id_auto_btn.pack(side=tk.RIGHT, padx=5)
+        
+        # Amount verification
+        self.amount_frame = tk.Frame(self.bill_verify_frame, bg="#f0f0f0")
+        self.amount_frame.pack(fill=tk.X, pady=5)
+        tk.Label(self.amount_frame, text="Amount:", bg="#f0f0f0", width=15, anchor="w").pack(side=tk.LEFT)
+        self.amount_var = tk.StringVar()
+        self.amount_entry = tk.Entry(self.amount_frame, textvariable=self.amount_var, width=40)
+        self.amount_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        self.amount_auto_btn = tk.Button(self.amount_frame, text="Auto Extract", command=lambda: self.auto_extract("amount"))
+        self.amount_auto_btn.pack(side=tk.RIGHT, padx=5)
+        
+        # Date/Time verification
+        self.datetime_frame = tk.Frame(self.bill_verify_frame, bg="#f0f0f0")
+        self.datetime_frame.pack(fill=tk.X, pady=5)
+        tk.Label(self.datetime_frame, text="Date/Time:", bg="#f0f0f0", width=15, anchor="w").pack(side=tk.LEFT)
+        self.datetime_var = tk.StringVar()
+        self.datetime_entry = tk.Entry(self.datetime_frame, textvariable=self.datetime_var, width=40)
+        self.datetime_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        self.datetime_auto_btn = tk.Button(self.datetime_frame, text="Auto Extract", command=lambda: self.auto_extract("datetime"))
+        self.datetime_auto_btn.pack(side=tk.RIGHT, padx=5)
+        
+        # Action buttons
+        self.bill_action_frame = tk.Frame(self.bill_main_frame, bg="#f0f0f0")
+        self.bill_action_frame.pack(fill=tk.X, pady=10)
+        
+        self.verify_btn = tk.Button(self.bill_action_frame, text="Verify Document", 
+                                   command=self.verify_bill, bg="#2196F3", fg="white", padx=10, pady=5)
+        self.verify_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.scan_qr_btn = tk.Button(self.bill_action_frame, text="Scan QR Code", 
+                                    command=self.scan_qr_code, bg="#9C27B0", fg="white", padx=10, pady=5)
+        self.scan_qr_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.bill_reset_btn = tk.Button(self.bill_action_frame, text="Reset", 
+                                       command=self.reset_bill_verification, bg="#f44336", fg="white", padx=10, pady=5)
+        self.bill_reset_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Display area for the document
+        self.bill_display_frame = tk.LabelFrame(self.bill_main_frame, text="Document", bg="#f0f0f0", padx=10, pady=10)
+        self.bill_display_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        self.bill_canvas = ZoomableCanvas(self.bill_display_frame, bg="#000000")
+        self.bill_canvas.pack(fill=tk.BOTH, expand=True)
+        self.bill_canvas.set_text("No document uploaded\nUse 'Upload Document' to begin verification")
+        
+        # Results section
+        self.bill_results_frame = tk.LabelFrame(self.bill_main_frame, text="Verification Results", bg="#f0f0f0", padx=10, pady=10)
+        self.bill_results_frame.pack(fill=tk.X, pady=10)
+        
+        self.results_text = tk.Text(self.bill_results_frame, height=8, width=80, wrap=tk.WORD)
+        self.results_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.results_text.config(state=tk.DISABLED)
+        
+        # Initialize bill image variable
+        self.bill_path = None
+        self.bill_cv = None
 
     def update_sensitivity_display(self, value=None):
         """Update the sensitivity value display"""
@@ -710,6 +815,10 @@ class ImageTextComparator:
         self.detection_details.delete(1.0, tk.END)
         self.sensitivity_var.set(50.0)  # Reset sensitivity to default
         self.method_var.set("contour")  # Reset detection method to default
+        
+        # Also reset bill verification tab
+        if hasattr(self, 'bill_path'):
+            self.reset_bill_verification()
 
     def detect_counterfeit(self):
         """Detect and highlight differences between images using the selected method"""
@@ -1008,6 +1117,650 @@ class ImageTextComparator:
         # Cap at 100%
         return min(100, confidence_score)
 
+    def browse_bill(self):
+        """Open a file dialog to select a bill/receipt to verify"""
+        file_path = filedialog.askopenfilename(
+            title="Select Document to Verify",
+            filetypes=(("Image files", "*.jpg;*.jpeg;*.png;*.bmp"), ("All files", "*.*"))
+        )
+        
+        if file_path:
+            try:
+                # Store the original image for processing
+                cv_img = cv2.imdecode(np.fromfile(file_path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+                
+                # Load and resize image for display
+                img = Image.open(file_path)
+                
+                # Store bill image info
+                self.bill_path = file_path
+                self.bill_cv = cv_img
+                
+                # Display in canvas
+                self.bill_canvas.set_image(img)
+                
+                # Reset fields
+                self.tx_id_var.set("")
+                self.amount_var.set("")
+                self.datetime_var.set("")
+                
+                # Reset results
+                self.results_text.config(state=tk.NORMAL)
+                self.results_text.delete(1.0, tk.END)
+                self.results_text.insert(tk.END, "Document loaded. Use verification tools to analyze.")
+                self.results_text.config(state=tk.DISABLED)
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to open document: {e}")
+
+    def auto_extract(self, field_type):
+        """Automatically extract specific field data from the bill"""
+        if self.bill_cv is None:
+            messagebox.showwarning("Warning", "Please upload a document first!")
+            return
+        
+        try:
+            # Extract text from the bill
+            doc_text = self.extract_text(self.bill_path, "eng+tha")
+            
+            # Based on document type and field, look for patterns
+            if field_type == "tx_id":
+                # Extract transaction ID based on document type
+                if self.bill_type_var.get() == "banking":
+                    # Look for patterns like "Ref: XXXNNNNNNNNN" or "Transaction: XXXNNNNNNNNN"
+                    tx_patterns = [
+                        r"Ref[.:#]\s*([A-Z0-9]{8,15})",
+                        r"Transaction[.:#]\s*([A-Z0-9]{8,15})",
+                        r"เลขที่อ้างอิง[.:#]\s*([A-Z0-9]{8,15})"
+                    ]
+                    
+                    for pattern in tx_patterns:
+                        match = re.search(pattern, doc_text)
+                        if match:
+                            self.tx_id_var.set(match.group(1))
+                            return
+                    
+                    # If no match, try to find any sequence that looks like a transaction ID
+                    match = re.search(r"[A-Z]{2,3}[0-9]{6,10}", doc_text)
+                    if match:
+                        self.tx_id_var.set(match.group(0))
+                        return
+                    
+                elif self.bill_type_var.get() == "receipt":
+                    # Look for receipt number patterns
+                    receipt_patterns = [
+                        r"Receipt No[.:#]\s*([A-Z0-9]{4,15})",
+                        r"ใบเสร็จรับเงินเลขที่[.:#]\s*([A-Z0-9]{4,15})"
+                    ]
+                    
+                    for pattern in receipt_patterns:
+                        match = re.search(pattern, doc_text)
+                        if match:
+                            self.tx_id_var.set(match.group(1))
+                            return
+                            
+                # QR payment - try generic approach
+                match = re.search(r"[A-Z0-9]{12,20}", doc_text)
+                if match:
+                    self.tx_id_var.set(match.group(0))
+                    return
+                    
+                messagebox.showinfo("Info", "Couldn't automatically detect Transaction ID. Please enter manually.")
+                    
+            elif field_type == "amount":
+                # Try to find amount patterns
+                amount_patterns = [
+                    r"Amount[.:#]?\s*(?:THB|฿)?\s*([0-9,.]+)",
+                    r"จำนวนเงิน[.:#]?\s*(?:บาท)?\s*([0-9,.]+)",
+                    r"(?:THB|฿)\s*([0-9,.]+)",
+                    r"([0-9,.]+)\s*(?:บาท|THB|฿)"
+                ]
+                
+                for pattern in amount_patterns:
+                    match = re.search(pattern, doc_text)
+                    if match:
+                        amount = match.group(1).replace(',', '')
+                        try:
+                            # Validate it's really a number
+                            float(amount)
+                            self.amount_var.set(amount)
+                            return
+                        except:
+                            continue
+                
+                messagebox.showinfo("Info", "Couldn't automatically detect Amount. Please enter manually.")
+                    
+            elif field_type == "datetime":
+                # Try to find date patterns
+                date_patterns = [
+                    r"Date[.:#]?\s*([0-9]{1,2}[/-][0-9]{1,2}[/-][0-9]{2,4})",
+                    r"Date[.:#]?\s*([A-Za-z]{3,9}\s*[0-9]{1,2},?\s*[0-9]{2,4})",
+                    r"วันที่[.:#]?\s*([0-9]{1,2}[/-][0-9]{1,2}[/-][0-9]{2,4})",
+                    r"([0-9]{1,2}[/-][0-9]{1,2}[/-][0-9]{2,4})\s*(?:เวลา)?\s*([0-9]{1,2}:[0-9]{2})"
+                ]
+                
+                for pattern in date_patterns:
+                    match = re.search(pattern, doc_text)
+                    if match:
+                        date_str = match.group(1)
+                        self.datetime_var.set(date_str)
+                        return
+                
+                messagebox.showinfo("Info", "Couldn't automatically detect Date/Time. Please enter manually.")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Extraction failed: {e}")
+
+    def scan_qr_code(self):
+        """Scan and validate QR code in the document"""
+        if self.bill_cv is None:
+            messagebox.showwarning("Warning", "Please upload a document first!")
+            return
+            
+        try:
+            # Convert to grayscale
+            gray = cv2.cvtColor(self.bill_cv, cv2.COLOR_BGR2GRAY)
+            
+            # Use cv2's QR code detector
+            qr_detector = cv2.QRCodeDetector()
+            data, bbox, _ = qr_detector.detectAndDecode(gray)
+            
+            if data:
+                # Update results text
+                self.results_text.config(state=tk.NORMAL)
+                self.results_text.delete(1.0, tk.END)
+                self.results_text.insert(tk.END, f"QR Code Detected!\n\nEncoded Data:\n{data}\n\n")
+                
+                # Analyze QR data based on document type
+                if self.bill_type_var.get() == "banking":
+                    self.validate_banking_qr(data)
+                elif self.bill_type_var.get() == "receipt":
+                    self.validate_receipt_qr(data)
+                else:
+                    self.validate_payment_qr(data)
+                    
+                # Draw bounding box around QR code if detected
+                if bbox is not None and len(bbox) > 0:
+                    # Make a copy of the original image
+                    qr_highlight = self.bill_cv.copy()
+                    
+                    # Draw polygon around QR code
+                    bbox = bbox.astype(int)
+                    cv2.polylines(qr_highlight, [bbox], True, (0, 255, 0), 2)
+                    
+                    # Convert to PIL format for display
+                    qr_highlight_rgb = cv2.cvtColor(qr_highlight, cv2.COLOR_BGR2RGB)
+                    qr_pil = Image.fromarray(qr_highlight_rgb)
+                    
+                    # Update display
+                    self.bill_canvas.set_image(qr_pil)
+                
+                self.results_text.config(state=tk.DISABLED)
+            else:
+                messagebox.showinfo("Result", "No QR code found in the image.")
+        except Exception as e:
+            messagebox.showerror("Error", f"QR code scanning failed: {e}")
+
+    def validate_banking_qr(self, qr_data):
+        """Validate QR data for banking slips"""
+        try:
+            # Check for common banking QR data patterns
+            bill_pay_pattern = r"billpay|payment|bank"
+            transfer_pattern = r"transfer|โอนเงิน"
+            amount_pattern = r"amount=([0-9.]+)"
+            
+            # Simple validation check
+            validation_score = 0
+            
+            if re.search(bill_pay_pattern, qr_data, re.IGNORECASE):
+                validation_score += 30
+                self.results_text.insert(tk.END, "✓ QR contains valid banking payment data\n")
+            
+            if re.search(transfer_pattern, qr_data, re.IGNORECASE):
+                validation_score += 30
+                self.results_text.insert(tk.END, "✓ QR contains valid transfer information\n")
+                
+            amount_match = re.search(amount_pattern, qr_data, re.IGNORECASE)
+            if amount_match:
+                # Extract amount from QR
+                qr_amount = amount_match.group(1)
+                
+                # Compare with user-entered amount if available
+                if self.amount_var.get():
+                    try:
+                        user_amount = self.amount_var.get().replace(',', '')
+                        if float(user_amount) == float(qr_amount):
+                            validation_score += 40
+                            self.results_text.insert(tk.END, f"✓ Amount in QR ({qr_amount}) matches entered amount\n")
+                        else:
+                            self.results_text.insert(tk.END, f"✗ Amount mismatch: QR={qr_amount}, Entered={user_amount}\n")
+                    except:
+                        pass
+                else:
+                    # Automatically set the amount
+                    self.amount_var.set(qr_amount)
+                    validation_score += 20
+            
+            # Final assessment
+            self.results_text.insert(tk.END, f"\nQR Validation Score: {validation_score}%\n\n")
+            
+            if validation_score >= 60:
+                self.results_text.insert(tk.END, "QR CODE VERIFIED: Contains valid banking information")
+            else:
+                self.results_text.insert(tk.END, "SUSPICIOUS QR CODE: Missing expected banking data patterns")
+                
+        except Exception as e:
+            self.results_text.insert(tk.END, f"Error validating QR: {e}")
+
+    def validate_receipt_qr(self, qr_data):
+        """Validate QR data for payment receipts"""
+        try:
+            # Check for common receipt QR data patterns
+            receipt_pattern = r"receipt|invoice|ใบเสร็จ|ใบสำคัญรับเงิน"
+            vendor_pattern = r"vendor=|merchant=|shop="
+            tax_pattern = r"tax|vat|ภาษี"
+            
+            # Simple validation check
+            validation_score = 0
+            
+            if re.search(receipt_pattern, qr_data, re.IGNORECASE):
+                validation_score += 30
+                self.results_text.insert(tk.END, "✓ QR contains valid receipt information\n")
+            
+            if re.search(vendor_pattern, qr_data, re.IGNORECASE):
+                validation_score += 20
+                self.results_text.insert(tk.END, "✓ QR contains vendor/merchant information\n")
+                
+            if re.search(tax_pattern, qr_data, re.IGNORECASE):
+                validation_score += 20
+                self.results_text.insert(tk.END, "✓ QR contains tax/VAT information\n")
+                
+            # Look for date pattern
+            date_match = re.search(r"date=(\S+)", qr_data, re.IGNORECASE)
+            if date_match:
+                validation_score += 30
+                date_str = date_match.group(1)
+                self.results_text.insert(tk.END, f"✓ QR contains date information: {date_str}\n")
+                
+                # Set date if not already set
+                if not self.datetime_var.get():
+                    self.datetime_var.set(date_str)
+            
+            # Final assessment
+            self.results_text.insert(tk.END, f"\nQR Validation Score: {validation_score}%\n\n")
+            
+            if validation_score >= 50:
+                self.results_text.insert(tk.END, "QR CODE VERIFIED: Contains valid receipt information")
+            else:
+                self.results_text.insert(tk.END, "SUSPICIOUS QR CODE: Missing expected receipt data patterns")
+                
+        except Exception as e:
+            self.results_text.insert(tk.END, f"Error validating QR: {e}")
+
+    def validate_payment_qr(self, qr_data):
+        """Validate QR data for QR payments (PromptPay/QR PromptPay)"""
+        try:
+            # Check for common QR payment patterns
+            promptpay_pattern = r"promptpay|พร้อมเพย์"
+            amount_pattern = r"amount=([0-9.]+)"
+            merchant_pattern = r"merchant=|receiver="
+            
+            # Simple validation check
+            validation_score = 0
+            
+            if re.search(promptpay_pattern, qr_data, re.IGNORECASE):
+                validation_score += 40
+                self.results_text.insert(tk.END, "✓ QR contains valid PromptPay data\n")
+            
+            merchant_match = re.search(merchant_pattern, qr_data, re.IGNORECASE)
+            if merchant_match:
+                validation_score += 30
+                self.results_text.insert(tk.END, "✓ QR contains merchant/recipient information\n")
+                
+            amount_match = re.search(amount_pattern, qr_data, re.IGNORECASE)
+            if amount_match:
+                # Extract amount from QR
+                qr_amount = amount_match.group(1)
+                validation_score += 30
+                
+                # Compare with user-entered amount if available
+                if self.amount_var.get():
+                    try:
+                        user_amount = self.amount_var.get().replace(',', '')
+                        if float(user_amount) == float(qr_amount):
+                            self.results_text.insert(tk.END, f"✓ Amount in QR ({qr_amount}) matches entered amount\n")
+                        else:
+                            validation_score -= 20
+                            self.results_text.insert(tk.END, f"✗ Amount mismatch: QR={qr_amount}, Entered={user_amount}\n")
+                    except:
+                        pass
+                else:
+                    # Automatically set the amount
+                    self.amount_var.set(qr_amount)
+                    self.results_text.insert(tk.END, f"✓ Amount detected from QR: {qr_amount}\n")
+            
+            # Final assessment
+            self.results_text.insert(tk.END, f"\nQR Validation Score: {validation_score}%\n\n")
+            
+            if validation_score >= 60:
+                self.results_text.insert(tk.END, "QR CODE VERIFIED: Contains valid payment information")
+            else:
+                self.results_text.insert(tk.END, "SUSPICIOUS QR CODE: Missing expected payment data patterns")
+                
+        except Exception as e:
+            self.results_text.insert(tk.END, f"Error validating QR: {e}")
+
+    def verify_bill(self):
+        """Verify the uploaded document for authenticity"""
+        if self.bill_cv is None:
+            messagebox.showwarning("Warning", "Please upload a document first!")
+            return
+        
+        try:
+            # Enable text widget for updating
+            self.results_text.config(state=tk.NORMAL)
+            self.results_text.delete(1.0, tk.END)
+            
+            # Initialize verification score
+            verification_score = 0
+            max_score = 100
+            checks_passed = 0
+            checks_total = 5
+            verification_notes = []
+            
+            # 1. Extract text from the image for content verification
+            doc_text = self.extract_text(self.bill_path, "eng+tha")
+            
+            # 2. Check for transaction ID format
+            if self.tx_id_var.get():
+                tx_id = self.tx_id_var.get()
+                if self.validate_transaction_id(tx_id):
+                    verification_score += 20
+                    checks_passed += 1
+                    verification_notes.append("✓ Transaction ID format is valid")
+                else:
+                    verification_notes.append("✗ Transaction ID format is invalid or suspicious")
+            
+            # 3. Check for date/time consistency
+            if self.datetime_var.get():
+                datetime_str = self.datetime_var.get()
+                if self.validate_datetime(datetime_str):
+                    verification_score += 20
+                    checks_passed += 1
+                    verification_notes.append("✓ Date/time format is valid")
+                else:
+                    verification_notes.append("✗ Date/time is invalid or inconsistent")
+            
+            # 4. Check image quality and artifacts
+            image_score = self.analyze_image_quality(self.bill_cv)
+            verification_score += image_score
+            if image_score > 15:
+                checks_passed += 1
+                verification_notes.append("✓ Image quality consistent with genuine document")
+            else:
+                verification_notes.append("✗ Image shows signs of manipulation or generation")
+            
+            # 5. Analyze document structure based on type
+            if self.bill_type_var.get() == "banking":
+                structure_valid = self.validate_banking_slip_structure(self.bill_cv, doc_text)
+            elif self.bill_type_var.get() == "receipt":
+                structure_valid = self.validate_receipt_structure(self.bill_cv, doc_text)
+            else:
+                structure_valid = self.validate_qr_payment_structure(self.bill_cv, doc_text)
+                
+            if structure_valid:
+                verification_score += 20
+                checks_passed += 1
+                verification_notes.append("✓ Document structure matches expected template")
+            else:
+                verification_notes.append("✗ Document structure deviates from expected template")
+            
+            # 6. Content consistency (e.g., amount, calculations)
+            if self.amount_var.get():
+                amount = self.amount_var.get()
+                if self.validate_amount_consistency(amount, doc_text):
+                    verification_score += 20
+                    checks_passed += 1
+                    verification_notes.append("✓ Amount is consistently displayed throughout document")
+                else:
+                    verification_notes.append("✗ Amount inconsistencies detected")
+            
+            # Display verification result
+            self.results_text.insert(tk.END, f"Verification Complete\n\n")
+            self.results_text.insert(tk.END, f"Score: {verification_score}/{max_score}\n")
+            self.results_text.insert(tk.END, f"Checks Passed: {checks_passed}/{checks_total}\n\n")
+            
+            # Apply appropriate tag based on verification score
+            if verification_score >= 80:
+                assessment = "HIGH CONFIDENCE: Document appears to be authentic."
+                self.results_text.insert(tk.END, assessment + "\n\n", "authentic")
+            elif verification_score >= 50:
+                assessment = "MEDIUM CONFIDENCE: Document has some suspicious elements."
+                self.results_text.insert(tk.END, assessment + "\n\n", "uncertain")
+            else:
+                assessment = "LOW CONFIDENCE: Document is likely fake or manipulated."
+                self.results_text.insert(tk.END, assessment + "\n\n", "fake")
+            
+            # Display verification notes
+            self.results_text.insert(tk.END, "Verification Notes:\n")
+            for note in verification_notes:
+                self.results_text.insert(tk.END, note + "\n")
+            
+            # Configure text tags for verification results
+            self.results_text.tag_configure('authentic', background='#e6ffcc', foreground='#006600')
+            self.results_text.tag_configure('uncertain', background='#ffffcc', foreground='#cc6600')
+            self.results_text.tag_configure('fake', background='#ffcccc', foreground='#cc0000')
+            
+            self.results_text.config(state=tk.DISABLED)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Verification failed: {e}")
+
+    def analyze_image_quality(self, image):
+        """Analyze image for signs of AI generation or manipulation"""
+        # Noise pattern analysis
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+        # Look for abnormal noise patterns
+        noise_level = np.std(gray)
+        
+        # Calculate image entropy (AI generated images often have lower entropy)
+        hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
+        hist = hist / hist.sum()
+        entropy = -np.sum(hist * np.log2(hist + 1e-7))
+        
+        # Edge coherence - AI images may have unnaturally smooth edges
+        edges = cv2.Canny(gray, 100, 200)
+        edge_coherence = np.sum(edges) / (gray.shape[0] * gray.shape[1])
+        
+        # JPEG artifacts analysis
+        _, enc_img = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        dec_img = cv2.imdecode(enc_img, cv2.IMREAD_COLOR)
+        diff = cv2.absdiff(image, dec_img)
+        jpeg_artifacts = np.mean(diff)
+        
+        # Score calculation (max 20 points)
+        score = 0
+        
+        # Natural images typically have moderate noise
+        if 5 < noise_level < 30:
+            score += 5
+        
+        # Natural images have higher entropy
+        if entropy > 7.0:
+            score += 5
+        
+        # Natural images have natural edge coherence
+        if 0.05 < edge_coherence < 0.2:
+            score += 5
+        
+        # JPEG artifacts should be within normal range for real photos
+        if 0.5 < jpeg_artifacts < 5:
+            score += 5
+        
+        return score
+
+    def validate_transaction_id(self, tx_id):
+        """Validate transaction ID format"""
+        # Check for common transaction ID patterns based on document type
+        if self.bill_type_var.get() == "banking":
+            # Banking slip transaction IDs often have patterns like XXXNNNNNNNNN
+            return bool(re.match(r'^[A-Z]{2,3}\d{6,10}$', tx_id))
+        elif self.bill_type_var.get() == "receipt":
+            # Receipt reference numbers often follow patterns like YYYYMMDDNNNNN
+            return bool(re.match(r'^\d{8,14}$', tx_id) or re.match(r'^[A-Z]{1,2}\d{6,10}$', tx_id))
+        else:
+            # QR payment references often have alphanumeric codes
+            return bool(re.match(r'^[A-Za-z0-9]{8,16}$', tx_id))
+
+    def validate_datetime(self, date_str):
+        """Validate date format and check if it's reasonable"""
+        # Try multiple formats
+        formats = [
+            "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d", "%Y-%m-%d",
+            "%d/%m/%y", "%d-%m-%y",
+            "%b %d, %Y", "%B %d, %Y",
+            "%d %b %Y", "%d %B %Y"
+        ]
+        
+        # Try parsing with each format
+        for fmt in formats:
+            try:
+                dt = datetime.strptime(date_str, fmt)
+                # Check if date is reasonable (not in the future, not too old)
+                now = datetime.now()
+                if dt <= now and dt.year >= 2000:
+                    return True
+            except:
+                continue
+        
+        # Thai date format check (e.g., "25 ก.พ. 2566")
+        thai_month_pattern = r"(\d{1,2})\s+([กขคงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ]{1,3}\.?)\s+(\d{4})"
+        match = re.match(thai_month_pattern, date_str)
+        if match:
+            try:
+                # Convert Thai year (Buddhist era) to Gregorian calendar if needed
+                year = int(match.group(3))
+                if year > 2500:  # Likely Buddhist Era
+                    year -= 543  # Convert to CE/AD
+                    
+                if 2000 <= year <= datetime.now().year:
+                    return True
+            except:
+                pass
+        
+        return False
+
+    def validate_banking_slip_structure(self, image, text):
+        """Validate the structure of a banking slip"""
+        # Basic check for common banking slip elements
+        banking_terms = [
+            "transfer", "transaction", "reference", "amount", "date", "receipt",
+            "bank", "payment", "account", "branch", "โอนเงิน", "ธนาคาร", "สาขา",
+            "รายการ", "จำนวน", "บัญชี"
+        ]
+        
+        count = 0
+        for term in banking_terms:
+            if term.lower() in text.lower():
+                count += 1
+        
+        # Need at least 3 banking terms
+        return count >= 3
+
+    def validate_receipt_structure(self, image, text):
+        """Validate the structure of a payment receipt"""
+        # Basic check for common receipt elements
+        receipt_terms = [
+            "receipt", "invoice", "total", "amount", "payment", "date", "customer",
+            "item", "price", "quantity", "tax", "vat", "ใบเสร็จ", "ใบกำกับภาษี",
+            "รวมเงิน", "จำนวนเงิน", "ราคา", "ภาษีมูลค่าเพิ่ม"
+        ]
+        
+        count = 0
+        for term in receipt_terms:
+            if term.lower() in text.lower():
+                count += 1
+        
+        # Need at least 3 receipt terms
+        return count >= 3
+
+    def validate_qr_payment_structure(self, image, text):
+        """Validate the structure of a QR payment"""
+        # Basic check for common QR payment elements
+        qr_terms = [
+            "promptpay", "qr code", "payment", "amount", "ref", "scan",
+            "พร้อมเพย์", "คิวอาร์", "สแกน", "ชำระเงิน", "จำนวนเงิน"
+        ]
+        
+        count = 0
+        for term in qr_terms:
+            if term.lower() in text.lower():
+                count += 1
+        
+        # Check for presence of QR code
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        qr_detector = cv2.QRCodeDetector()
+        data, bbox, _ = qr_detector.detectAndDecode(gray)
+        
+        if bbox is not None and len(bbox) > 0:
+            count += 3  # Strong indicator - actual QR code present
+        
+        # Need at least 3 QR terms or presence of actual QR code
+        return count >= 3
+
+    def validate_amount_consistency(self, amount_str, text):
+        """Check if amount appears consistently in the document"""
+        try:
+            # Clean and format amount string for comparison
+            amount = amount_str.replace(',', '')
+            amount_float = float(amount)
+            
+            # Format variations to look for in text
+            amount_exact = str(amount_float)
+            amount_with_commas = "{:,.2f}".format(amount_float)
+            
+            # Extra check for special formatting if amount > 1000
+            amount_patterns = [
+                amount_exact, 
+                amount_with_commas,
+                "{:,.0f}".format(amount_float) if amount_float >= 1000 else ""
+            ]
+            
+            # Check how many times amount appears in document
+            occurrences = 0
+            for pattern in amount_patterns:
+                if pattern and pattern in text:
+                    occurrences += 1
+            
+            # Valid if the amount appears at least once in the document
+            return occurrences > 0
+            
+        except:
+            return False
+
+    def reset_bill_verification(self):
+        """Reset the bill verification tab"""
+        # Clear image
+        self.bill_path = None
+        self.bill_cv = None
+        
+        # Reset display
+        self.bill_canvas.set_text("No document uploaded\nUse 'Upload Document' to begin verification")
+        
+        # Reset fields
+        self.tx_id_var.set("")
+        self.amount_var.set("")
+        self.datetime_var.set("")
+        
+        # Reset document type
+        self.bill_type_var.set("banking")
+        
+        # Clear results
+        self.results_text.config(state=tk.NORMAL)
+        self.results_text.delete(1.0, tk.END)
+        self.results_text.config(state=tk.DISABLED)
+
 class ZoomableCanvas(tk.Frame):
     """Canvas that supports zooming and panning"""
     def __init__(self, parent, **kwargs):
@@ -1016,7 +1769,7 @@ class ZoomableCanvas(tk.Frame):
         # Initialize variables
         self.zoom_level = 1.0
         self.min_zoom = 0.1
-        self.max_zoom = 5.0
+        self.max_zoom = 10.0  # Increased max zoom for more detail
         self.image = None
         self.tk_image = None
         self.original_image = None
@@ -1038,17 +1791,21 @@ class ZoomableCanvas(tk.Frame):
         self.zoom_frame = tk.Frame(self, bg="#f0f0f0")
         self.zoom_frame.pack(fill=tk.X, side=tk.TOP)
         
-        self.zoom_in_btn = tk.Button(self.zoom_frame, text="+", command=self.zoom_in)
-        self.zoom_in_btn.pack(side=tk.LEFT, padx=2)
-        
-        self.zoom_out_btn = tk.Button(self.zoom_frame, text="-", command=self.zoom_out)
+        # Improved zoom controls with additional options
+        self.zoom_out_btn = tk.Button(self.zoom_frame, text="-", command=self.zoom_out, width=2)
         self.zoom_out_btn.pack(side=tk.LEFT, padx=2)
         
-        self.zoom_reset_btn = tk.Button(self.zoom_frame, text="Reset Zoom", command=self.reset_zoom)
+        self.zoom_reset_btn = tk.Button(self.zoom_frame, text="100%", command=self.reset_zoom)
         self.zoom_reset_btn.pack(side=tk.LEFT, padx=2)
         
+        self.zoom_fit_btn = tk.Button(self.zoom_frame, text="Fit", command=self.fit_to_canvas)
+        self.zoom_fit_btn.pack(side=tk.LEFT, padx=2)
+        
+        self.zoom_in_btn = tk.Button(self.zoom_frame, text="+", command=self.zoom_in, width=2)
+        self.zoom_in_btn.pack(side=tk.LEFT, padx=2)
+        
         self.zoom_label = tk.Label(self.zoom_frame, text="Zoom: 100%", width=10)
-        self.zoom_label.pack(side=tk.LEFT, padx=5)
+        self.zoom_label.pack(side=tk.RIGHT, padx=5)
         
         # Bind events
         self.canvas.bind("<MouseWheel>", self.on_mousewheel)  # Windows
@@ -1059,6 +1816,11 @@ class ZoomableCanvas(tk.Frame):
         self.canvas.bind("<ButtonPress-1>", self.start_pan)
         self.canvas.bind("<B1-Motion>", self.pan)
         
+        # Track canvas size changes to adjust fit-to-canvas
+        self.bind("<Configure>", self.on_resize)
+        self.canvas_width = 0
+        self.canvas_height = 0
+        
     def set_image(self, image):
         """Set a new image to display"""
         if image is None:
@@ -1066,8 +1828,60 @@ class ZoomableCanvas(tk.Frame):
         
         self.original_image = image
         self.image = image
+        
+        # Default to fit-to-canvas instead of 100% for better initial view
+        self.after(100, self.fit_to_canvas)  # Slight delay to ensure canvas size is updated
+        
+    def fit_to_canvas(self):
+        """Resize the image to fit the canvas"""
+        if self.original_image is None:
+            return
+            
+        # Get canvas size (accounting for scrollbars)
+        canvas_width = self.canvas.winfo_width() - 2  # Subtract border width
+        canvas_height = self.canvas.winfo_height() - 2
+        
+        if canvas_width <= 1 or canvas_height <= 1:  # Canvas not yet drawn
+            self.after(100, self.fit_to_canvas)  # Try again after a delay
+            return
+            
+        # Calculate zoom needed to fit image
+        width_ratio = canvas_width / self.original_image.width
+        height_ratio = canvas_height / self.original_image.height
+        
+        # Use the smaller ratio to ensure the entire image fits
+        self.zoom_level = min(width_ratio, height_ratio) * 0.95  # 95% of actual fit for a small margin
+        
+        # Update image with new zoom level
+        self.image = self.original_image
         self.display_image()
-        self.reset_zoom()
+        
+        # Update scrollbars to center the image
+        self.center_image()
+        
+    def center_image(self):
+        """Center the image in the canvas"""
+        if self.tk_image:
+            # Get canvas and image dimensions
+            canvas_width = self.canvas.winfo_width()
+            canvas_height = self.canvas.winfo_height()
+            image_width = self.tk_image.width()
+            image_height = self.tk_image.height()
+            
+            # Calculate scroll fractions to center
+            if image_width > canvas_width:
+                x_center = 0.5
+                self.canvas.xview_moveto(x_center - (canvas_width / 2 / image_width))
+            else:
+                # Image narrower than canvas, no scroll needed
+                pass
+                
+            if image_height > canvas_height:
+                y_center = 0.5
+                self.canvas.yview_moveto(y_center - (canvas_height / 2 / image_height))
+            else:
+                # Image shorter than canvas, no scroll needed
+                pass
         
     def display_image(self):
         """Update the canvas with the current image and zoom level"""
@@ -1081,6 +1895,10 @@ class ZoomableCanvas(tk.Frame):
         # Calculate new dimensions based on zoom
         new_width = int(self.image.width * self.zoom_level)
         new_height = int(self.image.height * self.zoom_level)
+        
+        # Ensure minimum dimensions
+        new_width = max(new_width, 1)
+        new_height = max(new_height, 1)
         
         # Resize the image
         if self.zoom_level != 1.0:
@@ -1096,44 +1914,95 @@ class ZoomableCanvas(tk.Frame):
         self.canvas.create_image(0, 0, image=self.tk_image, anchor=tk.NW, tags="img")
         self.canvas.config(scrollregion=self.canvas.bbox("all"))
         
-        # Update zoom label
-        self.zoom_label.config(text=f"Zoom: {int(self.zoom_level * 100)}%")
+        # Update zoom label with percentage rounded to nearest integer
+        zoom_percent = int(self.zoom_level * 100)
+        self.zoom_label.config(text=f"Zoom: {zoom_percent}%")
+        self.zoom_reset_btn.config(text=f"{zoom_percent}%")
         
     def zoom_in(self):
         """Increase zoom level"""
         if self.zoom_level < self.max_zoom:
-            self.zoom_level *= 1.25
+            # Smoother zoom increments for better control
+            if self.zoom_level < 0.5:
+                self.zoom_level *= 1.2
+            elif self.zoom_level < 1.0:
+                self.zoom_level *= 1.15
+            else:
+                self.zoom_level *= 1.25
+                
+            self.zoom_level = min(self.zoom_level, self.max_zoom)  # Ensure we don't exceed max
             self.display_image()
             
     def zoom_out(self):
         """Decrease zoom level"""
         if self.zoom_level > self.min_zoom:
-            self.zoom_level /= 1.25
+            # Smoother zoom decrements for better control
+            if self.zoom_level > 1.0:
+                self.zoom_level /= 1.25
+            elif self.zoom_level > 0.5:
+                self.zoom_level /= 1.15
+            else:
+                self.zoom_level /= 1.1
+                
+            self.zoom_level = max(self.zoom_level, self.min_zoom)  # Ensure we don't go below min
             self.display_image()
             
     def reset_zoom(self):
-        """Reset to original zoom level"""
+        """Reset to original 100% zoom level"""
         self.zoom_level = 1.0
         self.display_image()
         
-        # Reset scroll position to top-left
-        self.canvas.xview_moveto(0)
-        self.canvas.yview_moveto(0)
+        # Center the image
+        self.center_image()
         
     def on_mousewheel(self, event, delta=None):
-        """Handle mousewheel events for zooming"""
+        """Handle mousewheel events for zooming at cursor position"""
         if self.original_image is None:
             return
+            
+        # Store current scroll position and cursor position
+        current_x = self.canvas.canvasx(event.x)
+        current_y = self.canvas.canvasy(event.y)
+        
+        # Calculate cursor position relative to image
+        relative_x = current_x / (self.original_image.width * self.zoom_level)
+        relative_y = current_y / (self.original_image.height * self.zoom_level)
             
         # Get direction from event
         if delta is None:
             delta = event.delta
             
         # Determine zoom factor based on scroll direction
+        old_zoom = self.zoom_level
         if delta > 0:
-            self.zoom_in()  # Zoom in
+            # Zoom in - more gradual when zoomed in
+            if self.zoom_level < 0.5:
+                self.zoom_level *= 1.1
+            elif self.zoom_level < 1.0:
+                self.zoom_level *= 1.05
+            else:
+                self.zoom_level *= 1.1
+            self.zoom_level = min(self.zoom_level, self.max_zoom)
         else:
-            self.zoom_out()  # Zoom out
+            # Zoom out - more gradual when zoomed out
+            if self.zoom_level > 1.0:
+                self.zoom_level /= 1.1
+            elif self.zoom_level > 0.5:
+                self.zoom_level /= 1.05
+            else:
+                self.zoom_level /= 1.1
+            self.zoom_level = max(self.zoom_level, self.min_zoom)
+        
+        # Apply the zoom
+        self.display_image()
+        
+        # Calculate new scroll position to keep cursor at same relative position
+        new_x = relative_x * (self.original_image.width * self.zoom_level)
+        new_y = relative_y * (self.original_image.height * self.zoom_level)
+        
+        # Adjust scrollbars to maintain position under cursor
+        self.canvas.xview_moveto((new_x - event.x) / self.tk_image.width())
+        self.canvas.yview_moveto((new_y - event.y) / self.tk_image.height())
             
     def start_pan(self, event):
         """Start panning the image"""
@@ -1156,6 +2025,20 @@ class ZoomableCanvas(tk.Frame):
             fill="white",
             font=("Arial", 12)
         )
+        
+    def on_resize(self, event):
+        """Handle canvas resizing to maintain fit-to-view if needed"""
+        # Only update if canvas size changed significantly
+        if (abs(self.canvas_width - self.canvas.winfo_width()) > 10 or
+            abs(self.canvas_height - self.canvas.winfo_height()) > 10):
+            
+            # Update saved dimensions
+            self.canvas_width = self.canvas.winfo_width()
+            self.canvas_height = self.canvas.winfo_height()
+            
+            # If image exists, consider refitting to canvas
+            if self.original_image and hasattr(self, 'auto_fit_mode') and self.auto_fit_mode:
+                self.fit_to_canvas()
 
 def main():
     # Check if tesseract is installed and configured
