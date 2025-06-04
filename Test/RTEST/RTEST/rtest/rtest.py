@@ -2,12 +2,16 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import pandas as pd
 import openpyxl
-from openpyxl.utils import get_column_letter
 import os
-from openpyxl.utils.dataframe import dataframe_to_rows
 import threading
-
+import traceback
+import gc
+import difflib
+from pathlib import Path
+from openpyxl.utils import get_column_letter
+from openpyxl.utils.dataframe import dataframe_to_rows
 from urllib.parse import urlparse, quote
+
 
 class ExcelComparisonApp:
     def __init__(self, root):
@@ -28,6 +32,8 @@ class ExcelComparisonApp:
         
         # Add header row configuration
         self.header_row = tk.IntVar(value=4)  # Set default to row 4
+
+        self._configure_button_styles()
         
         # Variables for filter criteria
         self.team_filters = []
@@ -122,37 +128,230 @@ class ExcelComparisonApp:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
     
     def _create_mode_selection(self, parent):
-        mode_frame = ttk.LabelFrame(parent, text="Comparison Mode")
-        mode_frame.pack(fill=tk.X, pady=(0, 15))
+        mode_frame = ttk.LabelFrame(parent, text="Tool Selection", padding="15")
+        mode_frame.pack(fill=tk.X, pady=(0, 20))
         
-        # Create radio buttons for mode selection
+        # Add main title
+        title_frame = ttk.Frame(mode_frame)
+        title_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        ttk.Label(
+            title_frame, 
+            text="Select Your Comparison Tool", 
+            font=("Arial", 12, "bold"),
+            foreground="#2C3E50"
+        ).pack()
+        
+        # Excel Comparison Section
+        excel_section = ttk.LabelFrame(mode_frame, text="Excel File Comparison", padding="15")
+        excel_section.pack(fill=tk.X, pady=(0, 15))
+        
+        # Excel mode description
+        excel_desc_frame = ttk.Frame(excel_section)
+        excel_desc_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(
+            excel_desc_frame,
+            text="📊 Compare and update Excel files with advanced matching and filtering",
+            font=("Arial", 9),
+            foreground="#34495E"
+        ).pack(anchor=tk.W)
+        
+        # Excel radio buttons in a more organized layout
+        excel_options_frame = ttk.Frame(excel_section)
+        excel_options_frame.pack(fill=tk.X, pady=5)
+        
+        # Standard mode
+        standard_frame = ttk.Frame(excel_options_frame)
+        standard_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
         standard_radio = ttk.Radiobutton(
-            mode_frame, 
-            text="Standard Mode (Team/App Name/Category)", 
+            standard_frame,
+            text="📋 Standard Mode",
             variable=self.current_mode,
             value="standard",
             command=lambda: self._switch_mode("standard")
         )
-        standard_radio.grid(row=0, column=0, padx=10, pady=5, sticky=tk.W)
+        standard_radio.pack(anchor=tk.W)
+        
+        ttk.Label(
+            standard_frame,
+            text="Team/App Name/Category columns",
+            font=("Arial", 8),
+            foreground="#7F8C8D"
+        ).pack(anchor=tk.W, padx=(20, 0))
+        
+        # Custom mode
+        custom_frame = ttk.Frame(excel_options_frame)
+        custom_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
         
         custom_radio = ttk.Radiobutton(
-            mode_frame, 
-            text="Custom Mode (Flexible Column Matching)", 
+            custom_frame,
+            text="⚙️ Custom Mode", 
             variable=self.current_mode,
             value="custom",
             command=lambda: self._switch_mode("custom")
         )
-        custom_radio.grid(row=0, column=1, padx=10, pady=5, sticky=tk.W)
+        custom_radio.pack(anchor=tk.W)
         
-        # Add help button
-        help_btn = ttk.Button(
-            mode_frame, 
-            text="?", 
-            width=2,
+        ttk.Label(
+            custom_frame,
+            text="Flexible column matching",
+            font=("Arial", 8),
+            foreground="#7F8C8D"
+        ).pack(anchor=tk.W, padx=(20, 0))
+        
+        # Help button for Excel
+        help_frame = ttk.Frame(excel_options_frame)
+        help_frame.pack(side=tk.RIGHT)
+        
+        ttk.Button(
+            help_frame,
+            text="❓ Help",
+            width=8,
             command=lambda: self._show_help_window("mode_selection")
+        ).pack()
+        
+        # Text Comparison Section - More prominent
+        text_section = ttk.LabelFrame(mode_frame, text="Text File Comparison", padding="15")
+        text_section.pack(fill=tk.X, pady=(0, 10))
+        
+        # Text comparison content
+        text_content_frame = ttk.Frame(text_section)
+        text_content_frame.pack(fill=tk.X)
+        
+        # Left side - Description
+        text_desc_frame = ttk.Frame(text_content_frame)
+        text_desc_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        ttk.Label(
+            text_desc_frame,
+            text="📄 Text File Comparison Tool",
+            font=("Arial", 11, "bold"),
+            foreground="#2980B9"
+        ).pack(anchor=tk.W)
+        
+        ttk.Label(
+            text_desc_frame,
+            text="Compare any text files (TXT, LOG, CSV, JSON, XML, Python, etc.)",
+            font=("Arial", 9),
+            foreground="#34495E"
+        ).pack(anchor=tk.W, pady=(2, 0))
+        
+        # Features list
+        features_frame = ttk.Frame(text_desc_frame)
+        features_frame.pack(anchor=tk.W, pady=(5, 0))
+        
+        features = [
+            "✓ Side-by-side comparison with syntax highlighting",
+            "✓ Unified diff view and HTML reports", 
+            "✓ Support for multiple file encodings",
+            "✓ Advanced filtering and search options"
+        ]
+        
+        for feature in features:
+            ttk.Label(
+                features_frame,
+                text=feature,
+                font=("Arial", 8),
+                foreground="#27AE60"
+            ).pack(anchor=tk.W)
+        
+        # Right side - Action buttons
+        text_buttons_frame = ttk.Frame(text_content_frame)
+        text_buttons_frame.pack(side=tk.RIGHT, padx=(20, 0))
+        
+        # Main text comparison button - more prominent
+        text_compare_btn = ttk.Button(
+            text_buttons_frame,
+            text="🚀 Open Text Comparison Tool",
+            command=self._open_text_comparison,
+            width=25
         )
-        help_btn.grid(row=0, column=2, padx=5, pady=5)
+        text_compare_btn.pack(pady=(0, 5))
+        
+        # Style the button to make it more prominent
+        text_compare_btn.configure(cursor="hand2")
+        
+        # Help button for text comparison
+        ttk.Button(
+            text_buttons_frame,
+            text="❓ Help & Guide",
+            command=lambda: self._show_help_window("text_comparison"),
+            width=25
+        ).pack()
     
+    def _open_text_comparison(self):
+        """Open the text comparison tool in a new window"""
+        try:
+            print("Attempting to open text comparison tool...")
+            
+            # Check if text_compare.py exists
+            text_compare_path = os.path.join(os.path.dirname(__file__), 'text_compare.py')
+            if not os.path.exists(text_compare_path):
+                messagebox.showerror(
+                    "Error", 
+                    f"text_compare.py not found at: {text_compare_path}\n\n"
+                    "Please make sure 'text_compare.py' is in the same directory as this file."
+                )
+                return
+            
+            print("text_compare.py found, importing...")
+            
+            # Import the text comparison module
+            from text_compare import TextComparisonApp
+            
+            print("TextComparisonApp imported successfully")
+            
+            # Create a new window for text comparison
+            text_window = tk.Toplevel(self.root)
+            text_window.transient(self.root)
+            text_window.grab_set()
+            
+            # Force window to be visible
+            text_window.lift()
+            text_window.focus_force()
+            text_window.attributes('-topmost', True)
+            text_window.after(100, lambda: text_window.attributes('-topmost', False))
+            
+            print("Creating TextComparisonApp instance...")
+            
+            # Create the text comparison app
+            text_app = TextComparisonApp(text_window)
+            text_app.parent_app = self.root
+            
+            print("Text comparison app created successfully")
+            
+            # Hide the main window while text comparison is open
+            self.root.withdraw()
+            
+            # When text comparison window is closed, show main window again
+            def on_text_window_close():
+                print("Text comparison window closing...")
+                self.root.deiconify()
+                text_window.destroy()
+            
+            text_window.protocol("WM_DELETE_WINDOW", on_text_window_close)
+            
+            # Force update and make visible
+            text_window.update()
+            text_window.deiconify()
+            
+            print("Text comparison tool opened successfully!")
+            
+        except ImportError as e:
+            print(f"Import error: {e}")
+            messagebox.showerror(
+                "Error", 
+                f"Failed to load text comparison module: {str(e)}\n\n"
+                "Make sure 'text_compare.py' is in the same directory as this file."
+            )
+        except Exception as e:
+            print(f"General error: {e}")
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("Error", f"Failed to open text comparison tool: {str(e)}")
+        
     def _switch_mode(self, mode):
         if mode == "standard":
             if self.custom_mode_frame:
@@ -179,6 +378,9 @@ class ExcelComparisonApp:
         # Progress bar and status label
         self.progress_var = tk.DoubleVar()
         self.status_var = tk.StringVar(value="Ready")
+
+        # Use the new status section
+        self._create_status_section(self.standard_mode_frame, custom_mode=False)
         
         status_frame = ttk.Frame(self.standard_mode_frame)
         status_frame.pack(fill=tk.X, pady=(20, 0))
@@ -217,6 +419,9 @@ class ExcelComparisonApp:
         # Progress bar and status
         self.custom_progress_var = tk.DoubleVar()
         self.custom_status_var = tk.StringVar(value="Ready")
+
+        # Use the new status section
+        self._create_status_section(self.custom_mode_frame, custom_mode=True)
         
         status_frame = ttk.Frame(self.custom_mode_frame)
         status_frame.pack(fill=tk.X, pady=(20, 0))
@@ -243,146 +448,261 @@ class ExcelComparisonApp:
         self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all"))
     
     def _create_file_selection_widgets(self, parent, custom_mode=False):
-        # Create a frame with both the label and help button
-        header_frame = ttk.Frame(parent)
-        header_frame.pack(fill=tk.X, pady=(0, 0))
+        # Main container with better spacing
+        container = ttk.Frame(parent)
+        container.pack(fill=tk.X, pady=(0, 20))
         
-        # Add the section label
-        file_label = ttk.Label(header_frame, text="File Selection", font=("", 10, "bold"))
-        file_label.pack(side=tk.LEFT, padx=5, pady=5)
+        # Header with icon and title
+        header_frame = ttk.Frame(container)
+        header_frame.pack(fill=tk.X, pady=(0, 15))
         
-        # Add the help button
+        # Title with icon
+        title_frame = ttk.Frame(header_frame)
+        title_frame.pack(side=tk.LEFT)
+        
+        title_label = ttk.Label(
+            title_frame, 
+            text="📁 File Selection", 
+            font=("Segoe UI", 12, "bold"),
+            foreground="#323130"
+        )
+        title_label.pack(side=tk.LEFT)
+        
+        # Help button with better styling
         help_btn = ttk.Button(
-            header_frame, 
-            text="?", 
-            width=2,
+            header_frame,
+            text="❓",
+            style="Icon.TButton",
+            width=3,
             command=lambda: self._show_help_window("file_selection")
         )
-        help_btn.pack(side=tk.LEFT, padx=2, pady=5)
+        help_btn.pack(side=tk.RIGHT)
         
-        # Create the actual frame for file selection content
-        file_frame = ttk.LabelFrame(parent, text="", padding="10")
-        file_frame.pack(fill=tk.X, pady=(0, 10))
+        # Description
+        desc_label = ttk.Label(
+            container,
+            text="Select the Excel files you want to compare and update",
+            font=("Segoe UI", 9),
+            foreground="#605E5C"
+        )
+        desc_label.pack(anchor=tk.W, pady=(0, 15))
         
-        # Old file selection
-        old_file_frame = ttk.Frame(file_frame)
-        old_file_frame.grid(row=0, column=0, sticky=tk.W+tk.E, pady=5, columnspan=3)
+        # Content frame with better organization
+        content_frame = ttk.Frame(container)
+        content_frame.pack(fill=tk.X)
         
-        ttk.Label(old_file_frame, text="Old File (to update):").pack(side=tk.LEFT, padx=5)
-        ttk.Entry(old_file_frame, textvariable=self.old_file_path, width=50).pack(side=tk.LEFT, padx=5)
-        ttk.Button(old_file_frame, text="Browse Local...", command=self._browse_old_file).pack(side=tk.LEFT, padx=5)
+        # Old file section
+        old_file_section = ttk.LabelFrame(
+            content_frame, 
+            text="📄 Source File (To Update)",
+            padding=15,
+            style="Card.TLabelframe"
+        )
+        old_file_section.pack(fill=tk.X, pady=(0, 10))
         
+        old_desc = ttk.Label(
+            old_file_section,
+            text="This file will be updated with new data",
+            font=("Segoe UI", 8),
+            foreground="#605E5C"
+        )
+        old_desc.pack(anchor=tk.W, pady=(0, 8))
         
-        # New file selection
-        new_file_frame = ttk.Frame(file_frame)
-        new_file_frame.grid(row=1, column=0, sticky=tk.W+tk.E, pady=5, columnspan=3)
+        old_file_frame = ttk.Frame(old_file_section)
+        old_file_frame.pack(fill=tk.X)
         
-        ttk.Label(new_file_frame, text="New File (reference):").pack(side=tk.LEFT, padx=5)
-        ttk.Entry(new_file_frame, textvariable=self.new_file_path, width=50).pack(side=tk.LEFT, padx=5)
-        ttk.Button(new_file_frame, text="Browse Local...", command=self._browse_new_file).pack(side=tk.LEFT, padx=5)
+        old_entry = ttk.Entry(
+            old_file_frame, 
+            textvariable=self.old_file_path, 
+            font=("Segoe UI", 9),
+            width=60
+        )
+        old_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
+        old_browse_btn = ttk.Button(
+            old_file_frame,
+            text="🗂️ Browse",
+            style="Secondary.TButton",
+            command=self._browse_old_file
+        )
+        old_browse_btn.pack(side=tk.RIGHT)
+        
+        # New file section
+        new_file_section = ttk.LabelFrame(
+            content_frame, 
+            text="📊 Reference File (Source Data)",
+            padding=15,
+            style="Card.TLabelframe"
+        )
+        new_file_section.pack(fill=tk.X)
+        
+        new_desc = ttk.Label(
+            new_file_section,
+            text="Data will be copied from this file to the source file",
+            font=("Segoe UI", 8),
+            foreground="#605E5C"
+        )
+        new_desc.pack(anchor=tk.W, pady=(0, 8))
+        
+        new_file_frame = ttk.Frame(new_file_section)
+        new_file_frame.pack(fill=tk.X)
+        
+        new_entry = ttk.Entry(
+            new_file_frame, 
+            textvariable=self.new_file_path, 
+            font=("Segoe UI", 9),
+            width=60
+        )
+        new_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
+        new_browse_btn = ttk.Button(
+            new_file_frame,
+            text="🗂️ Browse",
+            style="Secondary.TButton",
+            command=self._browse_new_file
+        )
+        new_browse_btn.pack(side=tk.RIGHT)
         
 
     def _create_sheet_selection_widgets(self, parent, custom_mode=False):
-        """Create the sheet selection widgets including scrollable area"""
-        # Create a frame with both the label and help button
-        header_frame = ttk.Frame(parent)
-        header_frame.pack(fill=tk.X, pady=(0, 0))
+        # Main container
+        container = ttk.Frame(parent)
+        container.pack(fill=tk.X, pady=(0, 20))
         
-        # Add the section label
-        sheet_label = ttk.Label(header_frame, text="Sheet Selection", font=("", 10, "bold"))
-        sheet_label.pack(side=tk.LEFT, padx=5, pady=5)
+        # Header section
+        header_frame = ttk.Frame(container)
+        header_frame.pack(fill=tk.X, pady=(0, 15))
         
-        # Add the help button
+        # Title with icon
+        title_frame = ttk.Frame(header_frame)
+        title_frame.pack(side=tk.LEFT)
+        
+        title_label = ttk.Label(
+            title_frame,
+            text="📋 Sheet Selection", 
+            font=("Segoe UI", 12, "bold"),
+            foreground="#323130"
+        )
+        title_label.pack(side=tk.LEFT)
+        
+        # Help button
         help_btn = ttk.Button(
-            header_frame, 
-            text="?", 
-            width=2,
+            header_frame,
+            text="❓",
+            style="Icon.TButton",
+            width=3,
             command=lambda: self._show_help_window("sheet_selection")
         )
-        help_btn.pack(side=tk.LEFT, padx=2, pady=5)
+        help_btn.pack(side=tk.RIGHT)
         
-        # Create the actual frame for sheet selection content
-        sheet_frame = ttk.LabelFrame(parent, text="", padding="10")
-        sheet_frame.pack(fill=tk.X, pady=(0, 10))
+        # Description
+        desc_label = ttk.Label(
+            container,
+            text="Load and select the worksheets you want to process",
+            font=("Segoe UI", 9),
+            foreground="#605E5C"
+        )
+        desc_label.pack(anchor=tk.W, pady=(0, 15))
         
-        # Create a button row with buttons
-        button_frame = ttk.Frame(sheet_frame)
-        button_frame.grid(row=0, column=0, columnspan=3, sticky=tk.W+tk.E, padx=5, pady=5)
+        # Action buttons section
+        actions_frame = ttk.Frame(container)
+        actions_frame.pack(fill=tk.X, pady=(0, 15))
         
-        # Add the Load Sheets button
-        ttk.Button(button_frame, text="Load Sheets", 
-                  command=self._load_sheets).pack(side=tk.LEFT, padx=5)
-
-        # Add explicit Load Columns button
-        ttk.Button(button_frame, text="Load Columns", 
-                  command=self._on_sheet_selected).pack(side=tk.LEFT, padx=5)
+        # Load sheets button
+        load_sheets_btn = ttk.Button(
+            actions_frame,
+            text="🔄 Load Sheets",
+            style="Accent.TButton",
+            command=self._load_sheets
+        )
+        load_sheets_btn.pack(side=tk.LEFT, padx=(0, 10))
         
-        # Create a frame for the canvas and scrollbar
-        canvas_frame = ttk.Frame(sheet_frame)
-        canvas_frame.grid(row=1, column=0, columnspan=3, sticky=tk.W+tk.E, padx=5, pady=5)
+        # Load columns button
+        load_columns_btn = ttk.Button(
+            actions_frame,
+            text="📊 Load Columns",
+            style="Secondary.TButton",
+            command=self._on_sheet_selected
+        )
+        load_columns_btn.pack(side=tk.LEFT)
         
-        # Create a canvas with fixed height
-        canvas = tk.Canvas(canvas_frame, height=150, borderwidth=0, highlightthickness=0)
+        # Status indicator
+        self.sheet_status_label = ttk.Label(
+            actions_frame,
+            text="",
+            font=("Segoe UI", 8),
+            foreground="#107C10"
+        )
+        self.sheet_status_label.pack(side=tk.RIGHT, padx=(10, 0))
         
-        # Create a scrollbar attached to the canvas
+        # Sheets container with improved styling
+        sheets_container = ttk.LabelFrame(
+            container,
+            text="Available Sheets",
+            padding=15,
+            style="Card.TLabelframe"
+        )
+        sheets_container.pack(fill=tk.X)
+        
+        # Canvas setup for scrollable sheet list
+        canvas_frame = ttk.Frame(sheets_container)
+        canvas_frame.pack(fill=tk.X)
+        
+        canvas = tk.Canvas(
+            canvas_frame, 
+            height=120, 
+            borderwidth=0, 
+            highlightthickness=0,
+            background="#FAFAFA"
+        )
+        
         scrollbar = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=canvas.yview)
         
-        # Create a frame inside the canvas that will hold the checkboxes
+        # Create frame for checkboxes
         if custom_mode:
-            inner_frame = ttk.Frame(canvas, borderwidth=0)
+            inner_frame = ttk.Frame(canvas)
             self.custom_sheet_checkbox_frame = inner_frame
         else:
-            inner_frame = ttk.Frame(canvas, borderwidth=0)
+            inner_frame = ttk.Frame(canvas)
             self.standard_sheet_checkbox_frame = inner_frame
         
-        # Store the current active frame
         self.sheet_checkbox_frame = inner_frame
         
-        # Configure the canvas to use the scrollbar
         canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # Pack the scrollbar and canvas
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
-        # Create a window in the canvas that contains the checkbox frame
-        canvas_window = canvas.create_window((0, 0), window=inner_frame, anchor="nw", tags="inner_frame")
+        canvas_window = canvas.create_window((0, 0), window=inner_frame, anchor="nw")
         
-        # Make sure the frame takes the full width of the canvas
+        # Configure scrolling
         def _configure_inner_frame(event):
-            canvas.itemconfig("inner_frame", width=event.width)
+            canvas.itemconfig(canvas_window, width=event.width)
         
-        canvas.bind("<Configure>", _configure_inner_frame)
-        
-        # Update scroll region when inner frame changes size
         def _update_scroll_region(event):
             canvas.configure(scrollregion=canvas.bbox("all"))
         
+        canvas.bind("<Configure>", _configure_inner_frame)
         inner_frame.bind("<Configure>", _update_scroll_region)
         
-        # Add mousewheel scrolling support
+        # Mouse wheel scrolling
         def _on_mousewheel(event):
-            # Respond to mouse wheel in Windows
             if event.delta:
                 canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-            # For Linux and macOS
             elif event.num == 4:
                 canvas.yview_scroll(-1, "units")
             elif event.num == 5:
                 canvas.yview_scroll(1, "units")
         
-        # Bind mousewheel to the canvas
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)  # Windows
-        canvas.bind_all("<Button-4>", _on_mousewheel)    # Linux scroll up
-        canvas.bind_all("<Button-5>", _on_mousewheel)    # Linux scroll down
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        canvas.bind_all("<Button-4>", _on_mousewheel)
+        canvas.bind_all("<Button-5>", _on_mousewheel)
         
-        # Store references for later use
+        # Store references
         if custom_mode:
             self.custom_sheet_canvas = canvas
         else:
             self.standard_sheet_canvas = canvas
-            
-        # Dictionary to store checkbox variables
+        
         self.sheet_vars = {}
 
     # Add this new method to handle sheet selection
@@ -425,68 +745,195 @@ class ExcelComparisonApp:
             traceback.print_exc()
         
     def _create_criteria_widgets(self, parent):
-        # Create a frame with both the label and help button
-        header_frame = ttk.Frame(parent)
-        header_frame.pack(fill=tk.X, pady=(0, 0))
+        # Main container
+        container = ttk.Frame(parent)
+        container.pack(fill=tk.X, pady=(0, 20))
         
-        # Add the section label
-        criteria_label = ttk.Label(header_frame, text="Comparison Criteria", font=("", 10, "bold"))
-        criteria_label.pack(side=tk.LEFT, padx=5, pady=5)
+        # Header section
+        header_frame = ttk.Frame(container)
+        header_frame.pack(fill=tk.X, pady=(0, 15))
         
-        # Add the help button
+        # Title with icon
+        title_frame = ttk.Frame(header_frame)
+        title_frame.pack(side=tk.LEFT)
+        
+        title_label = ttk.Label(
+            title_frame,
+            text="🎯 Comparison Criteria", 
+            font=("Segoe UI", 12, "bold"),
+            foreground="#323130"
+        )
+        title_label.pack(side=tk.LEFT)
+        
+        # Help button
         help_btn = ttk.Button(
-            header_frame, 
-            text="?", 
-            width=2,
+            header_frame,
+            text="❓",
+            style="Icon.TButton",
+            width=3,
             command=lambda: self._show_help_window("comparison_criteria")
         )
-        help_btn.pack(side=tk.LEFT, padx=2, pady=5)
+        help_btn.pack(side=tk.RIGHT)
         
-        # Create the actual frame for criteria content
-        criteria_frame = ttk.LabelFrame(parent, text="", padding="10")
-        criteria_frame.pack(fill=tk.X, pady=(0, 10))
+        # Description
+        desc_label = ttk.Label(
+            container,
+            text="Configure how rows are matched between files",
+            font=("Segoe UI", 9),
+            foreground="#605E5C"
+        )
+        desc_label.pack(anchor=tk.W, pady=(0, 15))
         
-        # Rest of your existing code...
-        # Add header row configuration
-        ttk.Label(criteria_frame, text="Header Row:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        header_spin = ttk.Spinbox(criteria_frame, from_=1, to=20, textvariable=self.header_row, width=5)
-        header_spin.grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
+        # Configuration section
+        config_frame = ttk.LabelFrame(
+            container,
+            text="⚙️ Configuration",
+            padding=15,
+            style="Card.TLabelframe"
+        )
+        config_frame.pack(fill=tk.X, pady=(0, 15))
         
-        # Add formula awareness checkbox
+        # Header row and formula settings
+        settings_frame = ttk.Frame(config_frame)
+        settings_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        # Header row setting
+        header_frame = ttk.Frame(settings_frame)
+        header_frame.pack(side=tk.LEFT, padx=(0, 30))
+        
+        ttk.Label(
+            header_frame, 
+            text="📍 Header Row:",
+            font=("Segoe UI", 9, "bold"),
+            foreground="#323130"
+        ).pack(side=tk.LEFT, padx=(0, 5))
+        
+        header_spin = ttk.Spinbox(
+            header_frame, 
+            from_=1, 
+            to=20, 
+            textvariable=self.header_row, 
+            width=5,
+            font=("Segoe UI", 9)
+        )
+        header_spin.pack(side=tk.LEFT)
+        
+        # Formula awareness
+        formula_frame = ttk.Frame(settings_frame)
+        formula_frame.pack(side=tk.LEFT)
+        
         ttk.Checkbutton(
-            criteria_frame, 
-            text="Formula-Aware Processing", 
-            variable=self.formula_aware
-        ).grid(row=0, column=15, sticky=tk.W, padx=5, pady=5)
+            formula_frame,
+            text="🧮 Formula-Aware Processing",
+            variable=self.formula_aware,
+            style="Modern.TCheckbutton"
+        ).pack()
         
-        # Column mode widgets (default)
-        self.column_frame = ttk.Frame(criteria_frame)
-        self.column_frame.grid(row=1, column=0, columnspan=3, sticky=tk.W+tk.E)
+        # Column matching section
+        columns_frame = ttk.LabelFrame(
+            container,
+            text="🔗 Column Matching",
+            padding=15,
+            style="Card.TLabelframe"
+        )
+        columns_frame.pack(fill=tk.X, pady=(0, 15))
         
-        ttk.Label(self.column_frame, text="Team Column:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        self.team_combobox = ttk.Combobox(self.column_frame, textvariable=self.team_column, state="readonly", width=30)
-        self.team_combobox.grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
+        # Instructions
+        instruction_label = ttk.Label(
+            columns_frame,
+            text="Select the columns used to match rows between files:",
+            font=("Segoe UI", 9),
+            foreground="#605E5C"
+        )
+        instruction_label.pack(anchor=tk.W, pady=(0, 15))
         
-        ttk.Label(self.column_frame, text="App Name Column:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        self.app_name_combobox = ttk.Combobox(self.column_frame, textvariable=self.app_name_column, state="readonly", width=30)
-        self.app_name_combobox.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
+        # Column selection grid
+        self.column_frame = ttk.Frame(columns_frame)
+        self.column_frame.pack(fill=tk.X)
         
-        ttk.Label(self.column_frame, text="Category Column:").grid(row=2, column=0, sticky=tk.W, pady=5)
-        self.category_combobox = ttk.Combobox(self.column_frame, textvariable=self.category_column, state="readonly", width=30)
-        self.category_combobox.grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
-
-        # Frame for additional criteria
+        # Team column
+        team_frame = ttk.Frame(self.column_frame)
+        team_frame.grid(row=0, column=0, columnspan=3, sticky=tk.W+tk.E, pady=5)
+        
+        ttk.Label(
+            team_frame, 
+            text="👥 Team Column:",
+            font=("Segoe UI", 9, "bold"),
+            foreground="#323130"
+        ).pack(side=tk.LEFT, anchor=tk.W, padx=(0, 10))
+        
+        self.team_combobox = ttk.Combobox(
+            team_frame, 
+            textvariable=self.team_column, 
+            state="readonly", 
+            width=35,
+            font=("Segoe UI", 9)
+        )
+        self.team_combobox.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
+        # App Name column
+        app_frame = ttk.Frame(self.column_frame)
+        app_frame.grid(row=1, column=0, columnspan=3, sticky=tk.W+tk.E, pady=5)
+        
+        ttk.Label(
+            app_frame, 
+            text="📱 App Name Column:",
+            font=("Segoe UI", 9, "bold"),
+            foreground="#323130"
+        ).pack(side=tk.LEFT, anchor=tk.W, padx=(0, 10))
+        
+        self.app_name_combobox = ttk.Combobox(
+            app_frame, 
+            textvariable=self.app_name_column, 
+            state="readonly", 
+            width=35,
+            font=("Segoe UI", 9)
+        )
+        self.app_name_combobox.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
+        # Category column
+        category_frame = ttk.Frame(self.column_frame)
+        category_frame.grid(row=2, column=0, columnspan=3, sticky=tk.W+tk.E, pady=5)
+        
+        ttk.Label(
+            category_frame, 
+            text="📂 Category Column:",
+            font=("Segoe UI", 9, "bold"),
+            foreground="#323130"
+        ).pack(side=tk.LEFT, anchor=tk.W, padx=(0, 10))
+        
+        self.category_combobox = ttk.Combobox(
+            category_frame, 
+            textvariable=self.category_column, 
+            state="readonly", 
+            width=35,
+            font=("Segoe UI", 9)
+        )
+        self.category_combobox.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
+        # Load columns button
+        load_btn = ttk.Button(
+            category_frame,
+            text="🔄 Load Columns",
+            style="Secondary.TButton",
+            command=self._load_columns
+        )
+        load_btn.pack(side=tk.RIGHT)
+        
+        # Additional criteria section
         self.additional_criteria_frame = ttk.Frame(self.column_frame)
-        self.additional_criteria_frame.grid(row=3, column=0, columnspan=3, sticky=tk.W+tk.E, pady=5)
+        self.additional_criteria_frame.grid(row=3, column=0, columnspan=3, sticky=tk.W+tk.E, pady=(15, 0))
         
-        # Add button to add new criteria
+        # Add criteria button
+        add_criteria_frame = ttk.Frame(self.column_frame)
+        add_criteria_frame.grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=(15, 0))
+        
         ttk.Button(
-            self.column_frame, 
-            text="+ Add Criteria Column", 
+            add_criteria_frame,
+            text="➕ Add Additional Criteria",
+            style="Secondary.TButton",
             command=self._add_criteria_column
-        ).grid(row=4, column=0, sticky=tk.W, pady=10)
-        
-        ttk.Button(self.column_frame, text="Load Columns", command=self._load_columns).grid(row=1, column=2, padx=5, pady=5)
+        ).pack(side=tk.LEFT)
 
     def _add_criteria_column(self):
         """Add a new comparison criteria column"""
@@ -608,49 +1055,97 @@ class ExcelComparisonApp:
             messagebox.showerror("Error", f"Failed to load key columns: {str(e)}")
         
     def _create_filter_widgets(self, parent):
-        # Create header with label and help button
-        header_frame = ttk.Frame(parent)
-        header_frame.pack(fill=tk.X, pady=(0, 0))
+        # Main container
+        container = ttk.Frame(parent)
+        container.pack(fill=tk.X, pady=(0, 20))
         
-        # Add the section label and help button
-        filter_label = ttk.Label(header_frame, text="Filter Criteria", font=("", 10, "bold"))
-        filter_label.pack(side=tk.LEFT, padx=5, pady=5)
+        # Header section
+        header_frame = ttk.Frame(container)
+        header_frame.pack(fill=tk.X, pady=(0, 15))
         
+        # Title with icon
+        title_frame = ttk.Frame(header_frame)
+        title_frame.pack(side=tk.LEFT)
+        
+        title_label = ttk.Label(
+            title_frame,
+            text="🔍 Filter Criteria", 
+            font=("Segoe UI", 12, "bold"),
+            foreground="#323130"
+        )
+        title_label.pack(side=tk.LEFT)
+        
+        # Help button
         help_btn = ttk.Button(
-            header_frame, 
-            text="?", 
-            width=2,
+            header_frame,
+            text="❓",
+            style="Icon.TButton",
+            width=3,
             command=lambda: self._show_help_window("filter_criteria")
         )
-        help_btn.pack(side=tk.LEFT, padx=2, pady=5)
+        help_btn.pack(side=tk.RIGHT)
         
-        # Create the filter content frame
-        filter_frame = ttk.LabelFrame(parent, text="(Leave empty to match all)", padding="10")
-        filter_frame.pack(fill=tk.X, pady=(0, 10))
+        # Description
+        desc_label = ttk.Label(
+            container,
+            text="Filter which rows to process (leave empty to include all matching rows)",
+            font=("Segoe UI", 9),
+            foreground="#605E5C"
+        )
+        desc_label.pack(anchor=tk.W, pady=(0, 15))
         
-        # Create frames for the default filters with horizontal layout
-        self.team_filter_frame = ttk.LabelFrame(filter_frame, text="Team Filters")
-        self.team_filter_frame.pack(fill=tk.X, padx=5, pady=5)
+        # Filter content
+        filter_content = ttk.LabelFrame(
+            container,
+            text="🔧 Active Filters",
+            padding=15,
+            style="Card.TLabelframe"
+        )
+        filter_content.pack(fill=tk.X, pady=(0, 15))
         
-        self.app_filter_frame = ttk.LabelFrame(filter_frame, text="App Name Filters")
-        self.app_filter_frame.pack(fill=tk.X, padx=5, pady=5)
+        # Team filters
+        self.team_filter_frame = ttk.LabelFrame(
+            filter_content, 
+            text="👥 Team Filters",
+            padding=10,
+            style="Nested.TLabelframe"
+        )
+        self.team_filter_frame.pack(fill=tk.X, pady=(0, 10))
         
-        self.category_filter_frame = ttk.LabelFrame(filter_frame, text="Category Filters")
-        self.category_filter_frame.pack(fill=tk.X, padx=5, pady=5)
+        # App Name filters
+        self.app_filter_frame = ttk.LabelFrame(
+            filter_content, 
+            text="📱 App Name Filters",
+            padding=10,
+            style="Nested.TLabelframe"
+        )
+        self.app_filter_frame.pack(fill=tk.X, pady=(0, 10))
         
-        # ===== ADDITIONAL FILTERS SECTION =====
-        # Create container for additional filters - VERTICAL LAYOUT
-        self.additional_filters_container = ttk.Frame(filter_frame)
+        # Category filters
+        self.category_filter_frame = ttk.LabelFrame(
+            filter_content, 
+            text="📂 Category Filters",
+            padding=10,
+            style="Nested.TLabelframe"
+        )
+        self.category_filter_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        # Additional filters container
+        self.additional_filters_container = ttk.Frame(filter_content)
         self.additional_filters_container.pack(fill=tk.X, pady=5)
         
-        # Add button for adding filter criteria
+        # Add filter criteria button
+        add_filter_frame = ttk.Frame(filter_content)
+        add_filter_frame.pack(anchor=tk.W, pady=(10, 0))
+        
         self.add_filter_btn = ttk.Button(
-            filter_frame,
-            text="➕ Add Filter Criteria",
+            add_filter_frame,
+            text="➕ Add Custom Filter",
+            style="Secondary.TButton",
             command=self._add_filter_criteria,
-            width=15
+            width=20
         )
-        self.add_filter_btn.pack(anchor=tk.W, padx=5, pady=5)
+        self.add_filter_btn.pack(side=tk.LEFT)
         
         # Initialize filter widgets
         self._refresh_filter_widgets()
@@ -836,66 +1331,148 @@ class ExcelComparisonApp:
         self._refresh_filter_widgets()
     
     def _create_action_buttons(self, parent, custom_mode=False):
-        # Create a frame with both the label and help button
-        header_frame = ttk.Frame(parent)
-        header_frame.pack(fill=tk.X, pady=(0, 0))
+        # Main container
+        container = ttk.Frame(parent)
+        container.pack(fill=tk.X, pady=(0, 20))
         
-        # Add the section label
-        save_label = ttk.Label(header_frame, text="Save Options", font=("", 10, "bold"))
-        save_label.pack(side=tk.LEFT, padx=5, pady=5)
+        # Header section
+        header_frame = ttk.Frame(container)
+        header_frame.pack(fill=tk.X, pady=(0, 15))
         
-        # Add the help button
+        # Title with icon
+        title_frame = ttk.Frame(header_frame)
+        title_frame.pack(side=tk.LEFT)
+        
+        title_label = ttk.Label(
+            title_frame,
+            text="💾 Save Options", 
+            font=("Segoe UI", 12, "bold"),
+            foreground="#323130"
+        )
+        title_label.pack(side=tk.LEFT)
+        
+        # Help button
         help_btn = ttk.Button(
-            header_frame, 
-            text="?", 
-            width=2,
+            header_frame,
+            text="❓",
+            style="Icon.TButton",
+            width=3,
             command=lambda: self._show_help_window("save_options")
         )
-        help_btn.pack(side=tk.LEFT, padx=2, pady=5)
+        help_btn.pack(side=tk.RIGHT)
         
-        # Create the actual frame for save options content
-        save_options_frame = ttk.LabelFrame(parent, text="", padding="10")
-        save_options_frame.pack(fill=tk.X, pady=(0, 10))
+        # Description
+        desc_label = ttk.Label(
+            container,
+            text="Configure how the updated data will be saved",
+            font=("Segoe UI", 9),
+            foreground="#605E5C"
+        )
+        desc_label.pack(anchor=tk.W, pady=(0, 15))
+        
+        # Save options section
+        save_options_frame = ttk.LabelFrame(
+            container,
+            text="💾 Output Configuration",
+            padding=15,
+            style="Card.TLabelframe"
+        )
+        save_options_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        # File mode section
+        file_mode_frame = ttk.Frame(save_options_frame)
+        file_mode_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        ttk.Label(
+            file_mode_frame,
+            text="📁 File Output Mode:",
+            font=("Segoe UI", 9, "bold"),
+            foreground="#323130"
+        ).pack(anchor=tk.W, pady=(0, 8))
+        
+        mode_frame = ttk.Frame(file_mode_frame)
+        mode_frame.pack(fill=tk.X, padx=15)
         
         ttk.Radiobutton(
-            save_options_frame, 
-            text="Create new updated file", 
-            variable=self.save_mode, 
-            value="new"
-        ).pack(anchor=tk.W, padx=5, pady=2)
+            mode_frame,
+            text="📄 Create new updated file (Recommended)",
+            variable=self.save_mode,
+            value="new",
+            style="Modern.TRadiobutton"
+        ).pack(anchor=tk.W, pady=2)
         
         ttk.Radiobutton(
-            save_options_frame, 
-            text="Replace original file", 
-            variable=self.save_mode, 
-            value="replace"
-        ).pack(anchor=tk.W, padx=5, pady=2)
+            mode_frame,
+            text="⚠️ Replace original file",
+            variable=self.save_mode,
+            value="replace",
+            style="Modern.TRadiobutton"
+        ).pack(anchor=tk.W, pady=2)
+        
+        # Additional options section
+        additional_frame = ttk.Frame(save_options_frame)
+        additional_frame.pack(fill=tk.X)
+        
+        ttk.Label(
+            additional_frame,
+            text="🎨 Additional Options:",
+            font=("Segoe UI", 9, "bold"),
+            foreground="#323130"
+        ).pack(anchor=tk.W, pady=(0, 8))
+        
+        options_frame = ttk.Frame(additional_frame)
+        options_frame.pack(fill=tk.X, padx=15)
         
         ttk.Checkbutton(
-            save_options_frame, 
-            text="Create additional file with highlighted changes",
-            variable=self.create_highlighted_file
-        ).pack(anchor=tk.W, padx=5, pady=2)
+            options_frame,
+            text="🌟 Create highlighted changes file",
+            variable=self.create_highlighted_file,
+            style="Modern.TCheckbutton"
+        ).pack(anchor=tk.W, pady=2)
         
         ttk.Checkbutton(
-            save_options_frame, 
-            text="Show popup with indexes of updated data",
-            variable=self.show_update_popup
-        ).pack(anchor=tk.W, padx=5, pady=2)
+            options_frame,
+            text="📊 Show update summary popup",
+            variable=self.show_update_popup,
+            style="Modern.TCheckbutton"
+        ).pack(anchor=tk.W, pady=2)
         
         ttk.Checkbutton(
-            save_options_frame, 
-            text="Clear file selection after update",
-            variable=self.clear_after_update
-        ).pack(anchor=tk.W, padx=5, pady=2)
+            options_frame,
+            text="🧹 Clear file selection after update",
+            variable=self.clear_after_update,
+            style="Modern.TCheckbutton"
+        ).pack(anchor=tk.W, pady=2)
         
-        # Create the action buttons frame (separate from options)
-        button_frame = ttk.Frame(parent)
-        button_frame.pack(fill=tk.X, pady=10)
+        # Action buttons section
+        action_frame = ttk.Frame(container)
+        action_frame.pack(fill=tk.X, pady=(10, 0))
         
-        # Action buttons
-        ttk.Button(button_frame, text="Compare and Update", command=self._start_compare_update).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(button_frame, text="Exit", command=self.root.quit).pack(side=tk.RIGHT, padx=5)
+        # Left side - secondary actions
+        left_actions = ttk.Frame(action_frame)
+        left_actions.pack(side=tk.LEFT)
+        
+        # Right side - primary actions
+        right_actions = ttk.Frame(action_frame)
+        right_actions.pack(side=tk.RIGHT)
+        
+        # Exit button
+        ttk.Button(
+            left_actions,
+            text="🚪 Exit",
+            style="Secondary.TButton",
+            command=self.root.quit,
+            width=12
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Main action button
+        ttk.Button(
+            right_actions,
+            text="🚀 Compare and Update",
+            style="Success.TButton",
+            command=self._start_compare_update,
+            width=20
+        ).pack(side=tk.RIGHT)
         
     def _browse_old_file(self):
         file_path = filedialog.askopenfilename(
@@ -2326,63 +2903,129 @@ class ExcelComparisonApp:
         show_help_window(self.root, section)
 
     def _create_custom_criteria_widgets(self, parent):
-        # Create a frame with both the label and help button
-        header_frame = ttk.Frame(parent)
-        header_frame.pack(fill=tk.X, pady=(0, 0))
+        # Main container
+        container = ttk.Frame(parent)
+        container.pack(fill=tk.X, pady=(0, 20))
         
-        # Add the section label
-        criteria_label = ttk.Label(header_frame, text="Custom Comparison Criteria", font=("", 10, "bold"))
-        criteria_label.pack(side=tk.LEFT, padx=5, pady=5)
+        # Header section
+        header_frame = ttk.Frame(container)
+        header_frame.pack(fill=tk.X, pady=(0, 15))
         
-        # Add the help button
+        # Title with icon
+        title_frame = ttk.Frame(header_frame)
+        title_frame.pack(side=tk.LEFT)
+        
+        title_label = ttk.Label(
+            title_frame,
+            text="🎯 Custom Comparison Criteria", 
+            font=("Segoe UI", 12, "bold"),
+            foreground="#323130"
+        )
+        title_label.pack(side=tk.LEFT)
+        
+        # Help button
         help_btn = ttk.Button(
-            header_frame, 
-            text="?", 
-            width=2,
+            header_frame,
+            text="❓",
+            style="Icon.TButton",
+            width=3,
             command=lambda: self._show_help_window("custom_comparison_criteria")
         )
-        help_btn.pack(side=tk.LEFT, padx=2, pady=5)
+        help_btn.pack(side=tk.RIGHT)
         
-        # Create the actual frame for criteria content
-        criteria_frame = ttk.LabelFrame(parent, text="", padding="10")
-        criteria_frame.pack(fill=tk.X, pady=(0, 10))
+        # Description
+        desc_label = ttk.Label(
+            container,
+            text="Define custom key columns for flexible row matching",
+            font=("Segoe UI", 9),
+            foreground="#605E5C"
+        )
+        desc_label.pack(anchor=tk.W, pady=(0, 15))
         
-        # Add header row configuration
-        ttk.Label(criteria_frame, text="Header Row:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        header_spin = ttk.Spinbox(criteria_frame, from_=1, to=20, textvariable=self.header_row, width=5)
-        header_spin.grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
+        # Configuration section
+        config_frame = ttk.LabelFrame(
+            container,
+            text="⚙️ Configuration",
+            padding=15,
+            style="Card.TLabelframe"
+        )
+        config_frame.pack(fill=tk.X, pady=(0, 15))
         
-        # Add formula awareness checkbox
-        ttk.Checkbutton(
-            criteria_frame, 
-            text="Formula-Aware Processing", 
-            variable=self.formula_aware
-        ).grid(row=0, column=2, sticky=tk.W, padx=5, pady=5)
+        # Settings row
+        settings_frame = ttk.Frame(config_frame)
+        settings_frame.pack(fill=tk.X, pady=(0, 15))
         
-        # Frame for key columns (these are what we match on)
-        self.custom_criteria_container = ttk.Frame(criteria_frame)
-        self.custom_criteria_container.grid(row=1, column=0, columnspan=3, sticky=tk.W+tk.E, pady=5)
+        # Header row
+        header_row_frame = ttk.Frame(settings_frame)
+        header_row_frame.pack(side=tk.LEFT, padx=(0, 30))
         
-        # Label for key columns section
         ttk.Label(
-            self.custom_criteria_container, 
-            text="Key Columns for Row Matching:", 
-            font=("", 9, "bold")
-        ).grid(row=0, column=0, columnspan=3, sticky=tk.W, pady=5)
+            header_row_frame,
+            text="📍 Header Row:",
+            font=("Segoe UI", 9, "bold"),
+            foreground="#323130"
+        ).pack(side=tk.LEFT, padx=(0, 5))
         
-        # Button to add key columns
+        header_spin = ttk.Spinbox(
+            header_row_frame,
+            from_=1,
+            to=20,
+            textvariable=self.header_row,
+            width=5,
+            font=("Segoe UI", 9)
+        )
+        header_spin.pack(side=tk.LEFT)
+        
+        # Formula awareness
+        formula_frame = ttk.Frame(settings_frame)
+        formula_frame.pack(side=tk.LEFT)
+        
+        ttk.Checkbutton(
+            formula_frame,
+            text="🧮 Formula-Aware Processing",
+            variable=self.formula_aware,
+            style="Modern.TCheckbutton"
+        ).pack()
+        
+        # Key columns section
+        key_columns_frame = ttk.LabelFrame(
+            container,
+            text="🔑 Key Columns for Matching",
+            padding=15,
+            style="Card.TLabelframe"
+        )
+        key_columns_frame.pack(fill=tk.X)
+        
+        # Instructions
+        instruction_label = ttk.Label(
+            key_columns_frame,
+            text="Define which columns uniquely identify rows for matching:",
+            font=("Segoe UI", 9),
+            foreground="#605E5C"
+        )
+        instruction_label.pack(anchor=tk.W, pady=(0, 15))
+        
+        # Action buttons row
+        actions_frame = ttk.Frame(key_columns_frame)
+        actions_frame.pack(fill=tk.X, pady=(0, 15))
+        
         ttk.Button(
-            self.custom_criteria_container,
-            text="+ Add Key Column",
+            actions_frame,
+            text="➕ Add Key Column",
+            style="Accent.TButton",
             command=self._add_custom_key_column
-        ).grid(row=1, column=0, sticky=tk.W, pady=5)
+        ).pack(side=tk.LEFT, padx=(0, 10))
         
-        # Button to load columns
         ttk.Button(
-            self.custom_criteria_container,
-            text="Load Columns",
+            actions_frame,
+            text="🔄 Load Columns",
+            style="Secondary.TButton",
             command=self._load_custom_columns
-        ).grid(row=1, column=1, sticky=tk.W, padx=10, pady=5)
+        ).pack(side=tk.LEFT)
+        
+        # Key columns container
+        self.custom_criteria_container = ttk.Frame(key_columns_frame)
+        self.custom_criteria_container.pack(fill=tk.X, pady=(10, 0))
 
     def _add_custom_key_column(self):
         """Add a new key column for custom matching"""
@@ -3245,6 +3888,200 @@ class ExcelComparisonApp:
             messagebox.showerror("Error", f"An error occurred: {str(e)}")
             import traceback
             traceback.print_exc()
+
+    def _configure_button_styles(self):
+        """Configure custom button styles for better UX"""
+        style = ttk.Style()
+        
+        # Configure prominent button style
+        style.configure(
+            "Accent.TButton",
+            font=("Segoe UI", 9, "bold"),
+            foreground="#323130",
+            background="#0078D4",
+            borderwidth=1,
+            focuscolor='none'
+        )
+        
+        style.map("Accent.TButton",
+            background=[('active', '#106EBE'), ('pressed', '#005A9E')],
+            foreground=[('active', '#323130'), ('pressed', '#323130')])
+        
+        # Configure success button style  
+        style.configure(
+            "Success.TButton",
+            font=("Segoe UI", 9, "bold"),
+            foreground="#FFFFFF",
+            background="#107C10",
+            borderwidth=1,
+            focuscolor='none'
+        )
+        
+        style.map("Success.TButton",
+            background=[('active', '#0E6A0E'), ('pressed', '#0C5D0C')],
+            foreground=[('active', '#FFFFFF'), ('pressed', '#FFFFFF')])
+        
+        # Configure warning button style
+        style.configure(
+            "Warning.TButton",
+            font=("Segoe UI", 9, "bold"),
+            foreground="#FFFFFF",
+            background="#FF8C00",
+            borderwidth=1,
+            focuscolor='none'
+        )
+        
+        style.map("Warning.TButton",
+            background=[('active', '#E67C00'), ('pressed', '#CC6F00')],
+            foreground=[('active', '#FFFFFF'), ('pressed', '#FFFFFF')])
+        
+        # Configure secondary button style
+        style.configure(
+            "Secondary.TButton",
+            font=("Segoe UI", 9),
+            foreground="#323130",
+            background="#F3F2F1",
+            borderwidth=1,
+            focuscolor='none'
+        )
+        
+        style.map("Secondary.TButton",
+            background=[('active', '#EDEBE9'), ('pressed', '#E1DFDD')],
+            foreground=[('active', '#323130'), ('pressed', '#323130')])
+        
+        # Configure icon button style
+        style.configure(
+            "Icon.TButton",
+            font=("Segoe UI", 8),
+            foreground="#605E5C",
+            background="#FAFAFA",
+            borderwidth=1,
+            relief="solid",
+            focuscolor='none'
+        )
+        
+        style.map("Icon.TButton",
+            background=[('active', '#F3F2F1'), ('pressed', '#EDEBE9')],
+            foreground=[('active', '#323130'), ('pressed', '#323130')])
+        
+        style.configure(
+        "Card.TLabelframe",
+        background="#FFFFFF",
+        borderwidth=1,
+        relief="solid",
+        bordercolor="#E1DFDD"
+        )
+    
+        style.configure(
+            "Card.TLabelframe.Label",
+            background="#FFFFFF",
+            foreground="#323130",
+            font=("Segoe UI", 9, "bold")
+        )
+        
+        style.configure(
+            "Nested.TLabelframe",
+            background="#F8F8F8",
+            borderwidth=1,
+            relief="solid",
+            bordercolor="#E1DFDD"
+        )
+        
+        style.configure(
+            "Nested.TLabelframe.Label",
+            background="#F8F8F8",
+            foreground="#605E5C",
+            font=("Segoe UI", 8, "bold")
+        )
+        
+        # Configure modern checkbutton and radiobutton styles
+        style.configure(
+            "Modern.TCheckbutton",
+            background="#FFFFFF",
+            foreground="#323130",
+            font=("Segoe UI", 9),
+            focuscolor='none'
+        )
+        
+        style.configure(
+            "Modern.TRadiobutton",
+            background="#FFFFFF",
+            foreground="#323130",
+            font=("Segoe UI", 9),
+            focuscolor='none'
+        )
+
+    def _create_status_section(self, parent, custom_mode=False):
+        # Status container
+        status_container = ttk.Frame(parent)
+        status_container.pack(fill=tk.X, pady=(20, 0))
+        
+        # Status header
+        status_header = ttk.Frame(status_container)
+        status_header.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(
+            status_header,
+            text="📊 Status & Progress",
+            font=("Segoe UI", 11, "bold"),
+            foreground="#323130"
+        ).pack(side=tk.LEFT)
+        
+        # Status content
+        status_content = ttk.LabelFrame(
+            status_container,
+            text="",
+            padding=15,
+            style="Card.TLabelframe"
+        )
+        status_content.pack(fill=tk.X)
+        
+        # Status row
+        status_row = ttk.Frame(status_content)
+        status_row.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(
+            status_row,
+            text="Status:",
+            font=("Segoe UI", 9, "bold"),
+            foreground="#323130"
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        
+        if custom_mode:
+            status_label = ttk.Label(
+                status_row,
+                textvariable=self.custom_status_var,
+                font=("Segoe UI", 9),
+                foreground="#0078D4"
+            )
+        else:
+            status_label = ttk.Label(
+                status_row,
+                textvariable=self.status_var,
+                font=("Segoe UI", 9),
+                foreground="#0078D4"
+            )
+        status_label.pack(side=tk.LEFT)
+        
+        # Progress bar
+        if custom_mode:
+            self.custom_progress_bar = ttk.Progressbar(
+                status_content,
+                orient=tk.HORIZONTAL,
+                mode='determinate',
+                variable=self.custom_progress_var,
+                style="Modern.Horizontal.TProgressbar"
+            )
+            self.custom_progress_bar.pack(fill=tk.X, pady=(5, 0))
+        else:
+            self.progress_bar = ttk.Progressbar(
+                status_content,
+                orient=tk.HORIZONTAL,
+                mode='determinate',
+                variable=self.progress_var,
+                style="Modern.Horizontal.TProgressbar"
+            )
+            self.progress_bar.pack(fill=tk.X, pady=(5, 0))
 
 if __name__ == "__main__":
     root = tk.Tk()
