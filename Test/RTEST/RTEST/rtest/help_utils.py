@@ -298,9 +298,33 @@ based on your specific key column structure.
     # Create help window
     help_window = tk.Toplevel(parent)
     help_window.title(f"Help - {help_content[section]['title']}")
-    help_window.geometry("600x500")
+    
+    # Calculate help window size based on parent window
+    try:
+        parent.update_idletasks()  # Ensure parent dimensions are current
+        parent_width = parent.winfo_width()
+        parent_height = parent.winfo_height()
+        
+        # Set help window to 60% of parent size, with minimums
+        help_width = max(600, int(parent_width * 0.6))
+        help_height = max(500, int(parent_height * 0.7))
+        
+        # Center relative to parent
+        parent_x = parent.winfo_rootx()
+        parent_y = parent.winfo_rooty()
+        help_x = parent_x + (parent_width - help_width) // 2
+        help_y = parent_y + (parent_height - help_height) // 2
+        
+        help_window.geometry(f"{help_width}x{help_height}+{help_x}+{help_y}")
+        
+    except tk.TclError:
+        # Fallback to fixed size if parent dimensions unavailable
+        help_window.geometry("700x600")
+    
     help_window.transient(parent)
     help_window.grab_set()
+    help_window.resizable(True, True)
+    help_window.minsize(500, 400)
     
     # Create scrollable text widget
     frame = ttk.Frame(help_window)

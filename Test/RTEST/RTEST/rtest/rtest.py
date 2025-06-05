@@ -4,10 +4,6 @@ import pandas as pd
 import openpyxl
 import os
 import threading
-import traceback
-import gc
-import difflib
-from pathlib import Path
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.dataframe import dataframe_to_rows
 from urllib.parse import urlparse, quote
@@ -17,7 +13,30 @@ class ExcelComparisonApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Excel Compare and Replace Tool Phase 1")
-        self.root.geometry("800x650")
+        
+        # Get screen dimensions and set window to 80% of screen size
+        screen_width = root.winfo_screenwidth()
+        screen_height = root.winfo_screenheight()
+        
+        # Calculate window size (80% of screen)
+        window_width = int(screen_width * 0.8)
+        window_height = int(screen_height * 0.8)
+        
+        # Calculate center position
+        center_x = int((screen_width - window_width) / 2)
+        center_y = int((screen_height - window_height) / 2)
+        
+        # Set geometry with calculated values
+        self.root.geometry(f"{window_width}x{window_height}+{center_x}+{center_y}")
+        
+        # Set minimum window size for usability
+        self.root.minsize(1200, 800)
+        
+        # Make window resizable
+        self.root.resizable(True, True)
+        
+        # Configure window state
+        self.root.state('normal')  # Ensure proper window state
         
         # Variables to store file paths and sheet names
         self.old_file_path = tk.StringVar()
@@ -73,33 +92,57 @@ class ExcelComparisonApp:
         self.key_columns = []  # Will store StringVars for key columns
         self.custom_filters = {}  # Will store custom filters
         
-        # Create a main scrollable canvas
-        self.main_canvas = tk.Canvas(root)
-        self.main_scrollbar = ttk.Scrollbar(root, orient="vertical", command=self.main_canvas.yview)
-        
+        # Create a main scrollable canvas with better proportions
+        canvas_container = ttk.Frame(root)
+        canvas_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        self.main_canvas = tk.Canvas(
+            canvas_container, 
+            highlightthickness=0,
+            background="#FAFAFA"
+        )
+        self.main_scrollbar = ttk.Scrollbar(
+            canvas_container, 
+            orient="vertical", 
+            command=self.main_canvas.yview
+        )
+
         # Configure the canvas
         self.main_canvas.configure(yscrollcommand=self.main_scrollbar.set)
-        self.main_canvas.bind('<Configure>', lambda e: self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all")))
-        
+
+        # Pack with better proportions and spacing
+        self.main_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, padx=(5, 0))
+        self.main_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
         # Create a frame inside the canvas to hold all content
         self.scrollable_frame = ttk.Frame(self.main_canvas)
-        
-        # Add mouse wheel scrolling to the canvas
-        def _on_mousewheel(event):
-            self.main_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-        
-        self.main_canvas.bind_all("<MouseWheel>", _on_mousewheel)
-        
+
         # Place the scrollable frame into the canvas
-        self.main_canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-        
-        # Pack the scrollbar and canvas
-        self.main_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.main_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.canvas_window = self.main_canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+
+        # Configure canvas binding for proper resizing
+        def configure_canvas(event):
+            # Update scroll region
+            self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all"))
+            
+            # Update canvas window width to match canvas width
+            canvas_width = event.width
+            self.main_canvas.itemconfig(self.canvas_window, width=canvas_width)
+
+        self.main_canvas.bind('<Configure>', configure_canvas)
+
+        # Bind frame configure to update scroll region
+        def configure_frame(event):
+            self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all"))
+
+        self.scrollable_frame.bind('<Configure>', configure_frame)
         
         # Create the main frame inside the scrollable area
         self.main_frame = ttk.Frame(self.scrollable_frame, padding="20")
         self.main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Adjust layout for screen size
+        section_spacing = self._adjust_layout_for_screen_size()
         
         # Add mode selection at the top
         self._create_mode_selection(self.main_frame)
@@ -125,7 +168,55 @@ class ExcelComparisonApp:
         self.add_filter_btn = None  # Will be initialized in _create_filter_widgets
         self.first_filter_click = True  # Add this line: Flag for first filter criteria click
 
+        # Setup window state management
+        self._setup_window_state()
+
+    def _adjust_layout_for_screen_size(self):
+        """Adjust layout based on screen size"""
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        # Adjust padding based on screen size
+        if screen_width < 1366:  # Smaller screens
+            main_padding = "15"
+            section_spacing = 15
+        elif screen_width < 1920:  # Standard screens
+            main_padding = "20"
+            section_spacing = 20
+        else:  # Large screens
+            main_padding = "25"
+            section_spacing = 25
+        
+        # Apply padding adjustments to main frame
+        self.main_frame.configure(padding=main_padding)
+        
+        return section_spacing
+    
+    def _setup_window_state(self):
+        """Setup window state management"""
+        # Enable proper window behavior
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        
+        # Set proper window attributes for better display
+        try:
+            self.root.attributes('-alpha', 1.0)  # Full opacity
+            self.root.lift()
+            self.root.focus_force()
+        except tk.TclError:
+            pass  # Some attributes may not be supported on all platforms
+        
+        # Bind window resize events for responsive behavior
+        self.root.bind('<Configure>', self._on_window_resize)
+
+    def _on_window_resize(self, event):
+        """Handle window resize events"""
+        if event.widget == self.root:
+            # Update canvas scroll region after resize
+            self.root.after_idle(self._configure_scrollregion, event)
+            
+            # Readjust layout if needed
+            if hasattr(self, 'main_frame'):
+                self.root.after_idle(self._adjust_layout_for_screen_size)
     
     def _create_mode_selection(self, parent):
         mode_frame = ttk.LabelFrame(parent, text="Tool Selection", padding="15")
@@ -303,8 +394,23 @@ class ExcelComparisonApp:
             
             print("TextComparisonApp imported successfully")
             
+            # Get screen dimensions for proper sizing
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            
+            # Set to 85% of screen for text comparison (needs more space)
+            text_width = int(screen_width * 0.85)
+            text_height = int(screen_height * 0.85)
+            
+            # Center the window
+            text_x = int((screen_width - text_width) / 2)
+            text_y = int((screen_height - text_height) / 2)
+            
             # Create a new window for text comparison
             text_window = tk.Toplevel(self.root)
+            text_window.title("Text File Comparison Tool")
+            text_window.geometry(f"{text_width}x{text_height}+{text_x}+{text_y}")
+            text_window.minsize(1000, 700)  # Set minimum size
             text_window.transient(self.root)
             text_window.grab_set()
             
@@ -381,21 +487,6 @@ class ExcelComparisonApp:
 
         # Use the new status section
         self._create_status_section(self.standard_mode_frame, custom_mode=False)
-        
-        status_frame = ttk.Frame(self.standard_mode_frame)
-        status_frame.pack(fill=tk.X, pady=(20, 0))
-        
-        ttk.Label(status_frame, text="Status:").pack(side=tk.LEFT)
-        ttk.Label(status_frame, textvariable=self.status_var).pack(side=tk.LEFT, padx=(5, 0))
-        
-        self.progress_bar = ttk.Progressbar(
-            self.standard_mode_frame, 
-            orient=tk.HORIZONTAL, 
-            length=100, 
-            mode='determinate',
-            variable=self.progress_var
-        )
-        self.progress_bar.pack(fill=tk.X, pady=(10, 0))
     
     def _create_custom_mode_ui(self):
         # Create a container frame for custom mode
@@ -422,21 +513,6 @@ class ExcelComparisonApp:
 
         # Use the new status section
         self._create_status_section(self.custom_mode_frame, custom_mode=True)
-        
-        status_frame = ttk.Frame(self.custom_mode_frame)
-        status_frame.pack(fill=tk.X, pady=(20, 0))
-        
-        ttk.Label(status_frame, text="Status:").pack(side=tk.LEFT)
-        ttk.Label(status_frame, textvariable=self.custom_status_var).pack(side=tk.LEFT, padx=(5, 0))
-        
-        self.custom_progress_bar = ttk.Progressbar(
-            self.custom_mode_frame, 
-            orient=tk.HORIZONTAL, 
-            length=100, 
-            mode='determinate',
-            variable=self.custom_progress_var
-        )
-        self.custom_progress_bar.pack(fill=tk.X, pady=(10, 0))
     
     def _on_close(self):
         """Handle application close"""
@@ -2343,11 +2419,27 @@ class ExcelComparisonApp:
         self.main_canvas.unbind_all("<Button-5>")
 
     def _on_mousewheel(self, event):
-        # Windows and macOS
-        if event.num == 5 or event.delta < 0:
-            self.main_canvas.yview_scroll(1, "units")
-        elif event.num == 4 or event.delta > 0:
-            self.main_canvas.yview_scroll(-1, "units")
+        """Handle mouse wheel scrolling with better responsiveness"""
+        # Check if the canvas is scrollable
+        if self.main_canvas.winfo_exists():
+            # Get the scroll region
+            bbox = self.main_canvas.bbox("all")
+            if bbox:
+                canvas_height = self.main_canvas.winfo_height()
+                content_height = bbox[3] - bbox[1]
+                
+                # Only scroll if content is larger than canvas
+                if content_height > canvas_height:
+                    # Windows and macOS
+                    if hasattr(event, 'delta'):
+                        delta = event.delta
+                        self.main_canvas.yview_scroll(int(-1 * (delta / 120)), "units")
+                    # Linux
+                    elif hasattr(event, 'num'):
+                        if event.num == 4:
+                            self.main_canvas.yview_scroll(-1, "units")
+                        elif event.num == 5:
+                            self.main_canvas.yview_scroll(1, "units")
 
     def _detect_formula_relationships(self, sheet, header_row):
         """Detect formula relationships between columns in the sheet."""
@@ -3888,6 +3980,8 @@ class ExcelComparisonApp:
             messagebox.showerror("Error", f"An error occurred: {str(e)}")
             import traceback
             traceback.print_exc()
+    
+    
 
     def _configure_button_styles(self):
         """Configure custom button styles for better UX"""
