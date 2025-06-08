@@ -9,7 +9,16 @@ class TextComparisonApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Text File Comparison Tool")
-        self.root.geometry("1000x700")
+        
+        # Make the window responsive
+        screen_width = root.winfo_screenwidth()
+        screen_height = root.winfo_screenheight()
+        window_width = int(screen_width * 0.85)
+        window_height = int(screen_height * 0.85)
+        center_x = int((screen_width - window_width) / 2)
+        center_y = int((screen_height - window_height) / 2)
+        self.root.geometry(f"{window_width}x{window_height}+{center_x}+{center_y}")
+        self.root.minsize(1000, 700)
         
         # Variables to store file paths
         self.old_file_path = tk.StringVar()
@@ -27,7 +36,20 @@ class TextComparisonApp:
         self.diff_format = tk.StringVar(value="unified")  # unified, context, html
         
         self._create_ui()
+        
+        # Add proper window close protocol
+        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
     
+    def _on_closing(self):
+        """Handle window closing event"""
+        try:
+            if hasattr(self, 'parent_app') and self.parent_app:
+                self.parent_app.deiconify()  # Show the parent window
+        except:
+            pass  # Ignore errors when showing parent
+        finally:
+            self.root.destroy()
+
     def _create_ui(self):
         # Update window title to be more descriptive
         self.root.title("📄 Text File Comparison Tool - Excel Compare Tool Extension")
@@ -337,20 +359,27 @@ class TextComparisonApp:
     
     def _compare_files(self):
         try:
-            self.status_var.set("Reading files...")
-            self.progress_var.set(10)
-            self.root.update_idletasks()
+            self._update_ui_safely("Reading files...", 10)
             
-            # Read files
             old_lines = self._read_file(self.old_file_path.get())
             new_lines = self._read_file(self.new_file_path.get())
             
             if old_lines is None or new_lines is None:
                 return
             
-            self.status_var.set("Comparing files...")
-            self.progress_var.set(30)
-            self.root.update_idletasks()
+            total_lines = len(old_lines) + len(new_lines)
+            if total_lines > 50000:  # More than 50k lines total
+                result = messagebox.askyesno(
+                    "Large File Warning", 
+                    f"Files contain {total_lines:,} total lines. "
+                    "Comparison may take a while and use significant memory. "
+                    "Continue?"
+                )
+                if not result:
+                    self._update_ui_safely("Comparison cancelled", 0)
+                    return
+            
+            self._update_ui_safely("Comparing files...", 30)
             
             # Perform comparison
             differ = difflib.unified_diff(
@@ -363,9 +392,7 @@ class TextComparisonApp:
             
             diff_lines = list(differ)
             
-            self.status_var.set("Generating results...")
-            self.progress_var.set(60)
-            self.root.update_idletasks()
+            self._update_ui_safely(status="Generating results...", progress=60)
             
             # Generate summary
             self._generate_summary(old_lines, new_lines, diff_lines)
@@ -380,18 +407,28 @@ class TextComparisonApp:
             if self.save_diff.get():
                 self._save_diff_file(diff_lines, old_lines, new_lines)
             
-            self.status_var.set("Comparison complete")
-            self.progress_var.set(100)
+            self._update_ui_safely("Comparison complete", 100)
             
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred during comparison: {str(e)}")
-            self.status_var.set("Error occurred")
-            self.progress_var.set(0)
+            self._update_ui_safely("Error occurred", 0)
+    
+    def _update_ui_safely(self, status=None, progress=None):
+        """Safely update UI from background thread"""
+        if status:
+            self.root.after(0, lambda: self.status_var.set(status))
+        if progress is not None:
+            self.root.after(0, lambda: self.progress_var.set(progress))
     
     def _read_file(self, file_path):
         try:
+            # Check if file exists first
+            if not os.path.exists(file_path):
+                messagebox.showerror("Error", f"File not found: {file_path}")
+                return None
+            
             # Try different encodings
-            encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252']
+            encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'iso-8859-1']
             
             for encoding in encodings:
                 try:
@@ -405,12 +442,16 @@ class TextComparisonApp:
                     if self.ignore_case.get():
                         lines = [line.lower() for line in lines]
                     
+                    print(f"Successfully read {file_path} with {encoding} encoding")
                     return lines
                 
                 except UnicodeDecodeError:
                     continue
+                except PermissionError:
+                    messagebox.showerror("Error", f"Permission denied accessing file: {file_path}")
+                    return None
             
-            messagebox.showerror("Error", f"Could not read file {file_path}. Unsupported encoding.")
+            messagebox.showerror("Error", f"Could not read file {file_path}. Unsupported encoding.\nTried: {', '.join(encodings)}")
             return None
             
         except Exception as e:
@@ -658,9 +699,16 @@ Options Used:
     
     def _back_to_excel(self):
         """Return to the main Excel comparison tool"""
-        if hasattr(self, 'parent_app'):
-            self.parent_app.deiconify()  # Show the parent window
-        self.root.destroy()
+        try:
+            if hasattr(self, 'parent_app') and self.parent_app:
+                self.parent_app.deiconify()  # Show the parent window
+            else:
+                # If no parent app, just close this window
+                print("No parent app found, closing text comparison window")
+            self.root.destroy()
+        except Exception as e:
+            print(f"Error returning to Excel tool: {e}")
+            self.root.destroy()  # Still close the window
 
 def main():
     root = tk.Tk()
