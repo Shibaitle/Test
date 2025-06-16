@@ -12,7 +12,7 @@ from urllib.parse import urlparse, quote
 class ExcelComparisonApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Excel Compare and Replace Tool Phase 1")
+        self.root.title("Excel Compare and Replace Tool")
         
         # Get screen dimensions and set window to 80% of screen size
         screen_width = root.winfo_screenwidth()
@@ -329,10 +329,10 @@ class ExcelComparisonApp:
             foreground="#34495E"
         ).pack(anchor=tk.W, pady=(2, 0))
         
+        '''
         # Features list
         features_frame = ttk.Frame(text_desc_frame)
         features_frame.pack(anchor=tk.W, pady=(5, 0))
-        
         features = [
             "✓ Side-by-side comparison with syntax highlighting",
             "✓ Unified diff view and HTML reports", 
@@ -347,6 +347,7 @@ class ExcelComparisonApp:
                 font=("Arial", 8),
                 foreground="#27AE60"
             ).pack(anchor=tk.W)
+        '''
         
         # Right side - Action buttons
         text_buttons_frame = ttk.Frame(text_content_frame)
@@ -355,7 +356,7 @@ class ExcelComparisonApp:
         # Main text comparison button - more prominent
         text_compare_btn = ttk.Button(
             text_buttons_frame,
-            text="🚀 Open Text Comparison Tool",
+            text="Open ⬅️",
             command=self._open_text_comparison,
             width=25
         )
@@ -697,7 +698,7 @@ class ExcelComparisonApp:
         load_columns_btn = ttk.Button(
             actions_frame,
             text="📊 Load Columns",
-            style="Secondary.TButton",
+            style="Accent.TButton",
             command=self._on_sheet_selected
         )
         load_columns_btn.pack(side=tk.LEFT)
@@ -991,7 +992,7 @@ class ExcelComparisonApp:
         load_btn = ttk.Button(
             category_frame,
             text="🔄 Load Columns",
-            style="Secondary.TButton",
+            style="Accent.TButton",
             command=self._load_columns
         )
         load_btn.pack(side=tk.RIGHT)
@@ -1216,7 +1217,7 @@ class ExcelComparisonApp:
         
         self.add_filter_btn = ttk.Button(
             add_filter_frame,
-            text="➕ Add Custom Filter",
+            text="➕ Add",
             style="Secondary.TButton",
             command=self._add_filter_criteria,
             width=20
@@ -1745,7 +1746,7 @@ class ExcelComparisonApp:
             # Create a selection dialog
             value_dialog = tk.Toplevel(self.root)
             value_dialog.title(f"Select {column} Value")
-            value_dialog.geometry("400x300")
+            value_dialog.geometry("550x500")
             value_dialog.transient(self.root)
             value_dialog.grab_set()
             
@@ -2600,7 +2601,7 @@ class ExcelComparisonApp:
         # Create selection dialog
         criteria_dialog = tk.Toplevel(self.root)
         criteria_dialog.title("Select Filter Criteria")
-        criteria_dialog.geometry("400x300")
+        criteria_dialog.geometry("550x500")
         criteria_dialog.transient(self.root)
         criteria_dialog.grab_set()
         
@@ -2754,7 +2755,7 @@ class ExcelComparisonApp:
             # Create selection dialog
             value_dialog = tk.Toplevel(self.root)
             value_dialog.title(f"Select {criteria_label} Value")
-            value_dialog.geometry("400x300")
+            value_dialog.geometry("550x500")
             value_dialog.transient(self.root)
             value_dialog.grab_set()
             
@@ -3111,7 +3112,7 @@ class ExcelComparisonApp:
         ttk.Button(
             actions_frame,
             text="🔄 Load Columns",
-            style="Secondary.TButton",
+            style="Accent.TButton",
             command=self._load_custom_columns
         ).pack(side=tk.LEFT)
         
@@ -3265,7 +3266,7 @@ class ExcelComparisonApp:
         # Add filter button
         ttk.Button(
             filter_frame,
-            text="+ Add Custom Filter",
+            text="+ Add",
             command=self._add_custom_filter,
             width=15
         ).pack(anchor=tk.W, padx=5, pady=5)
@@ -3280,7 +3281,7 @@ class ExcelComparisonApp:
         # Show filter selection dialog
         filter_dialog = tk.Toplevel(self.root)
         filter_dialog.title("Add Custom Filter")
-        filter_dialog.geometry("400x300")
+        filter_dialog.geometry("550x500")
         filter_dialog.transient(self.root)
         filter_dialog.grab_set()
         
@@ -3501,7 +3502,7 @@ class ExcelComparisonApp:
         # Create a new dialog
         value_dialog = tk.Toplevel(self.root)
         value_dialog.title(f"Select {title} Value")
-        value_dialog.geometry("400x300")
+        value_dialog.geometry("550x500")
         value_dialog.transient(self.root)
         value_dialog.grab_set()
         
@@ -4005,7 +4006,7 @@ class ExcelComparisonApp:
         style.configure(
             "Success.TButton",
             font=("Segoe UI", 9, "bold"),
-            foreground="#FFFFFF",
+            foreground="#323130",
             background="#107C10",
             borderwidth=1,
             focuscolor='none'
@@ -4013,7 +4014,7 @@ class ExcelComparisonApp:
         
         style.map("Success.TButton",
             background=[('active', '#0E6A0E'), ('pressed', '#0C5D0C')],
-            foreground=[('active', '#FFFFFF'), ('pressed', '#FFFFFF')])
+            foreground=[('active', '#323130'), ('pressed', '#323130')])
         
         # Configure warning button style
         style.configure(
@@ -4176,6 +4177,20 @@ class ExcelComparisonApp:
                 style="Modern.Horizontal.TProgressbar"
             )
             self.progress_bar.pack(fill=tk.X, pady=(5, 0))
+
+    def set_parent_launcher(self, parent_launcher):
+        """Set reference to parent launcher for proper window management"""
+        self.parent_launcher = parent_launcher
+        
+        # Override the close protocol
+        def on_close():
+            if hasattr(self, 'parent_launcher') and self.parent_launcher:
+                self.parent_launcher.deiconify()
+                self.parent_launcher.lift()
+                self.parent_launcher.focus_force()
+            self.root.destroy()
+        
+        self.root.protocol("WM_DELETE_WINDOW", on_close)
 
 if __name__ == "__main__":
     root = tk.Tk()

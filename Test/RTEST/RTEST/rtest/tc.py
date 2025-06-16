@@ -34,8 +34,17 @@ class TextComparisonApp:
         # Output options
         self.save_diff = tk.BooleanVar(value=False)
         self.diff_format = tk.StringVar(value="unified")  # unified, context, html
+
+        # Encoding options
+        self.encoding_mode = tk.StringVar(value="auto")  # auto, same, separate
+        self.old_file_encoding = tk.StringVar(value="utf-8")
+        self.new_file_encoding = tk.StringVar(value="utf-8")
+        self.both_files_encoding = tk.StringVar(value="utf-8")
         
         self._create_ui()
+        
+        # Initialize encoding widgets
+        self._create_encoding_widgets()
         
         # Add proper window close protocol
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
@@ -102,6 +111,9 @@ class TextComparisonApp:
         # Results section
         self._create_results_section(main_frame)
         
+        # Add encoding info display section
+        self._create_encoding_info_section(main_frame)
+        
         # Status bar
         self._create_status_bar(main_frame)
     
@@ -153,7 +165,7 @@ class TextComparisonApp:
         ttk.Checkbutton(comp_frame, text="Ignore case", variable=self.ignore_case).pack(side=tk.LEFT, padx=(0, 15))
         ttk.Checkbutton(comp_frame, text="Show line numbers", variable=self.show_line_numbers).pack(side=tk.LEFT, padx=(0, 15))
         
-        # Context lines
+        # Context lines and save options
         context_frame = ttk.Frame(options_frame)
         context_frame.pack(fill=tk.X, pady=5)
         
@@ -172,6 +184,118 @@ class TextComparisonApp:
             state="readonly"
         )
         format_combo.pack(side=tk.LEFT)
+        
+        # Encoding options section
+        encoding_frame = ttk.LabelFrame(options_frame, text="File Encoding Options", padding="5")
+        encoding_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # Encoding mode selection
+        mode_frame = ttk.Frame(encoding_frame)
+        mode_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Label(mode_frame, text="Encoding Mode:", font=("Arial", 9, "bold")).pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Radiobutton(
+            mode_frame, 
+            text="🔍 Auto-detect", 
+            variable=self.encoding_mode, 
+            value="auto",
+            command=self._on_encoding_mode_change
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Radiobutton(
+            mode_frame, 
+            text="📝 Same for both files", 
+            variable=self.encoding_mode, 
+            value="same",
+            command=self._on_encoding_mode_change
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Radiobutton(
+            mode_frame, 
+            text="⚙️ Separate encodings", 
+            variable=self.encoding_mode, 
+            value="separate",
+            command=self._on_encoding_mode_change
+        ).pack(side=tk.LEFT)
+        
+        # Encoding selection widgets
+        self.encoding_widgets_frame = ttk.Frame(encoding_frame)
+        self.encoding_widgets_frame.pack(fill=tk.X, pady=(5, 0))
+        
+        self._create_encoding_widgets()
+    
+    def _create_encoding_widgets(self):
+        """Create encoding selection widgets based on current mode"""
+        # Clear existing widgets
+        for widget in self.encoding_widgets_frame.winfo_children():
+            widget.destroy()
+        
+        encoding_options = [
+            "utf-8", "utf-8-sig", "latin-1", "cp1252", "iso-8859-1", 
+            "ascii", "utf-16", "utf-32", "cp437", "cp850", "iso-8859-15"
+        ]
+        
+        mode = self.encoding_mode.get()
+        
+        if mode == "auto":
+            # Show auto-detect info
+            info_label = ttk.Label(
+                self.encoding_widgets_frame,
+                text="ℹ️ Encoding will be automatically detected (utf-8, utf-8-sig, latin-1, cp1252, iso-8859-1)",
+                foreground="#666666"
+            )
+            info_label.pack(anchor=tk.W)
+            
+        elif mode == "same":
+            # Show single encoding selection for both files
+            same_frame = ttk.Frame(self.encoding_widgets_frame)
+            same_frame.pack(fill=tk.X)
+            
+            ttk.Label(same_frame, text="📄 Encoding for both files:", font=("Arial", 9, "bold")).pack(side=tk.LEFT, padx=(0, 5))
+            
+            encoding_combo = ttk.Combobox(
+                same_frame,
+                textvariable=self.both_files_encoding,
+                values=encoding_options,
+                width=15,
+                state="normal"
+            )
+            encoding_combo.pack(side=tk.LEFT)
+            
+        elif mode == "separate":
+            # Show separate encoding selection for each file
+            old_frame = ttk.Frame(self.encoding_widgets_frame)
+            old_frame.pack(fill=tk.X, pady=(0, 3))
+            
+            ttk.Label(old_frame, text="📄 Original file encoding:", font=("Arial", 9, "bold")).pack(side=tk.LEFT, padx=(0, 5))
+            
+            old_encoding_combo = ttk.Combobox(
+                old_frame,
+                textvariable=self.old_file_encoding,
+                values=encoding_options,
+                width=15,
+                state="normal"
+            )
+            old_encoding_combo.pack(side=tk.LEFT)
+            
+            new_frame = ttk.Frame(self.encoding_widgets_frame)
+            new_frame.pack(fill=tk.X)
+            
+            ttk.Label(new_frame, text="📄 New file encoding:", font=("Arial", 9, "bold")).pack(side=tk.LEFT, padx=(0, 5))
+            
+            new_encoding_combo = ttk.Combobox(
+                new_frame,
+                textvariable=self.new_file_encoding,
+                values=encoding_options,
+                width=15,
+                state="normal"
+            )
+            new_encoding_combo.pack(side=tk.LEFT)
+
+    def _on_encoding_mode_change(self):
+        """Handle encoding mode change"""
+        self._create_encoding_widgets()
     
     def _create_action_buttons(self, parent):
         button_frame = ttk.Frame(parent)
@@ -278,6 +402,26 @@ class TextComparisonApp:
         # Configure text widget tags for highlighting
         self._configure_text_tags()
     
+    def _create_encoding_info_section(self, parent):
+        """Create section to display detected/used encodings"""
+        self.encoding_info_frame = ttk.LabelFrame(parent, text="File Encoding Information", padding="5")
+        self.encoding_info_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Create text widget to display encoding info
+        self.encoding_info_text = tk.Text(
+            self.encoding_info_frame, 
+            height=3, 
+            wrap=tk.WORD,
+            background="#F8F9FA",
+            foreground="#495057",
+            font=("Arial", 9),
+            state=tk.DISABLED
+        )
+        self.encoding_info_text.pack(fill=tk.X, pady=5)
+        
+        # Initially hide the frame
+        self.encoding_info_frame.pack_forget()
+    
     def _create_status_bar(self, parent):
         self.status_var = tk.StringVar(value="Ready")
         status_frame = ttk.Frame(parent)
@@ -285,6 +429,16 @@ class TextComparisonApp:
         
         ttk.Label(status_frame, text="Status:").pack(side=tk.LEFT)
         ttk.Label(status_frame, textvariable=self.status_var).pack(side=tk.LEFT, padx=(5, 0))
+        
+        # Add encoding status
+        self.encoding_status_var = tk.StringVar(value="")
+        self.encoding_status_label = ttk.Label(
+            status_frame, 
+            textvariable=self.encoding_status_var,
+            foreground="#6C757D",
+            font=("Arial", 8)
+        )
+        self.encoding_status_label.pack(side=tk.LEFT, padx=(20, 0))
         
         # Progress bar
         self.progress_var = tk.DoubleVar()
@@ -361,11 +515,19 @@ class TextComparisonApp:
         try:
             self._update_ui_safely("Reading files...", 10)
             
-            old_lines = self._read_file(self.old_file_path.get())
-            new_lines = self._read_file(self.new_file_path.get())
-            
-            if old_lines is None or new_lines is None:
+            old_result = self._read_file(self.old_file_path.get(), "old")
+            new_result = self._read_file(self.new_file_path.get(), "new")
+
+            if old_result[0] is None or new_result[0] is None:
+                self._update_ui_safely("Error reading files", 0)
                 return
+            
+            old_lines, old_encoding = old_result
+            new_lines, new_encoding = new_result
+            
+            # Store encoding information for display
+            self.old_file_encoding_used = old_encoding
+            self.new_file_encoding_used = new_encoding
             
             total_lines = len(old_lines) + len(new_lines)
             if total_lines > 50000:  # More than 50k lines total
@@ -413,50 +575,97 @@ class TextComparisonApp:
             messagebox.showerror("Error", f"An error occurred during comparison: {str(e)}")
             self._update_ui_safely("Error occurred", 0)
     
-    def _update_ui_safely(self, status=None, progress=None):
+    def _update_ui_safely(self, status=None, progress=None, encoding_status=None):
         """Safely update UI from background thread"""
         if status:
             self.root.after(0, lambda: self.status_var.set(status))
         if progress is not None:
             self.root.after(0, lambda: self.progress_var.set(progress))
+        if encoding_status:
+            self.root.after(0, lambda: self.encoding_status_var.set(encoding_status))
     
-    def _read_file(self, file_path):
+    def _read_file(self, file_path, file_type="old"):
+        """Read file with selected encoding options"""
         try:
             # Check if file exists first
             if not os.path.exists(file_path):
                 messagebox.showerror("Error", f"File not found: {file_path}")
-                return None
+                return None, None
             
-            # Try different encodings
-            encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'iso-8859-1']
+            mode = self.encoding_mode.get()
             
-            for encoding in encodings:
-                try:
-                    with open(file_path, 'r', encoding=encoding) as f:
-                        lines = f.readlines()
-                    
-                    # Apply preprocessing options
-                    if self.ignore_whitespace.get():
-                        lines = [line.strip() + '\n' for line in lines]
-                    
-                    if self.ignore_case.get():
-                        lines = [line.lower() for line in lines]
-                    
-                    print(f"Successfully read {file_path} with {encoding} encoding")
-                    return lines
+            if mode == "auto":
+                # Auto-detect encoding
+                encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'iso-8859-1']
                 
-                except UnicodeDecodeError:
-                    continue
-                except PermissionError:
-                    messagebox.showerror("Error", f"Permission denied accessing file: {file_path}")
-                    return None
+                for encoding in encodings:
+                    try:
+                        with open(file_path, 'r', encoding=encoding) as f:
+                            lines = f.readlines()
+                        
+                        print(f"Successfully read {file_path} with {encoding} encoding (auto-detected)")
+                        return self._process_lines(lines), encoding
+                    
+                    except UnicodeDecodeError:
+                        continue
+                    except PermissionError:
+                        messagebox.showerror("Error", f"Permission denied accessing file: {file_path}")
+                        return None, None
+                
+                messagebox.showerror("Error", f"Could not read file {file_path}. Unsupported encoding.\nTried: {', '.join(encodings)}")
+                return None, None
             
-            messagebox.showerror("Error", f"Could not read file {file_path}. Unsupported encoding.\nTried: {', '.join(encodings)}")
-            return None
-            
+            elif mode == "same":
+                # Use same encoding for both files
+                encoding = self.both_files_encoding.get()
+                return self._read_with_encoding(file_path, encoding)
+
+            elif mode == "separate":
+                # Use separate encodings
+                if file_type == "old":
+                    encoding = self.old_file_encoding.get()
+                else:  # new file
+                    encoding = self.new_file_encoding.get()
+                return self._read_with_encoding(file_path, encoding)
+                
         except Exception as e:
             messagebox.showerror("Error", f"Error reading file {file_path}: {str(e)}")
-            return None
+            return None, None
+
+    def _read_with_encoding(self, file_path, encoding):
+        """Read file with specific encoding"""
+        try:
+            with open(file_path, 'r', encoding=encoding) as f:
+                lines = f.readlines()
+            
+            print(f"Successfully read {file_path} with {encoding} encoding")
+            return self._process_lines(lines), encoding 
+            
+        except UnicodeDecodeError as e:
+            messagebox.showerror(
+                "Encoding Error", 
+                f"Could not read {file_path} with {encoding} encoding.\n\n"
+                f"Error: {str(e)}\n\n"
+                "Try using 'Auto-detect' mode or a different encoding."
+            )
+            return None, None  
+        except PermissionError:
+            messagebox.showerror("Error", f"Permission denied accessing file: {file_path}")
+            return None, None  
+        except Exception as e:
+            messagebox.showerror("Error", f"Error reading file {file_path} with {encoding}: {str(e)}")
+            return None, None  
+
+    def _process_lines(self, lines):
+        """Apply preprocessing options to lines"""
+        # Apply preprocessing options
+        if self.ignore_whitespace.get():
+            lines = [line.strip() + '\n' for line in lines]
+        
+        if self.ignore_case.get():
+            lines = [line.lower() for line in lines]
+        
+        return lines
     
     def _generate_summary(self, old_lines, new_lines, diff_lines):
         # Calculate statistics
@@ -466,37 +675,85 @@ class TextComparisonApp:
         added_lines = sum(1 for line in diff_lines if line.startswith('+') and not line.startswith('+++'))
         removed_lines = sum(1 for line in diff_lines if line.startswith('-') and not line.startswith('---'))
         
+        # Get encoding info
+        old_encoding = getattr(self, 'old_file_encoding_used', 'Unknown')
+        new_encoding = getattr(self, 'new_file_encoding_used', 'Unknown')
+        
         # Generate summary text
         summary = f"""File Comparison Summary
-{'=' * 50}
+    {'=' * 50}
 
-Original File: {os.path.basename(self.old_file_path.get())}
-  - Path: {self.old_file_path.get()}
-  - Lines: {old_line_count:,}
-  - Size: {self._get_file_size(self.old_file_path.get())}
+    Original File: {os.path.basename(self.old_file_path.get())}
+    - Path: {self.old_file_path.get()}
+    - Lines: {old_line_count:,}
+    - Size: {self._get_file_size(self.old_file_path.get())}
+    - Encoding: {old_encoding}
 
-New File: {os.path.basename(self.new_file_path.get())}
-  - Path: {self.new_file_path.get()}
-  - Lines: {new_line_count:,}
-  - Size: {self._get_file_size(self.new_file_path.get())}
+    New File: {os.path.basename(self.new_file_path.get())}
+    - Path: {self.new_file_path.get()}
+    - Lines: {new_line_count:,}
+    - Size: {self._get_file_size(self.new_file_path.get())}
+    - Encoding: {new_encoding}
 
-Changes:
-  - Lines added: {added_lines:,}
-  - Lines removed: {removed_lines:,}
-  - Net change: {new_line_count - old_line_count:,} lines
+    Changes:
+    - Lines added: {added_lines:,}
+    - Lines removed: {removed_lines:,}
+    - Net change: {new_line_count - old_line_count:,} lines
 
-Options Used:
-  - Ignore whitespace: {'Yes' if self.ignore_whitespace.get() else 'No'}
-  - Ignore case: {'Yes' if self.ignore_case.get() else 'No'}
-  - Context lines: {self.context_lines.get()}
-"""
+    Options Used:
+    - Ignore whitespace: {'Yes' if self.ignore_whitespace.get() else 'No'}
+    - Ignore case: {'Yes' if self.ignore_case.get() else 'No'}
+    - Context lines: {self.context_lines.get()}
+    - Encoding mode: {self.encoding_mode.get()}
+    """
         
+        self.summary_text.config(state=tk.NORMAL)
         self.summary_text.delete(1.0, tk.END)
         self.summary_text.insert(1.0, summary)
         self.summary_text.config(state=tk.DISABLED)
+        
+        # Update encoding info display
+        self._update_encoding_info_display()
+    
+    def _update_encoding_info_display(self):
+        """Update the encoding information display"""
+        old_encoding = getattr(self, 'old_file_encoding_used', 'Unknown')
+        new_encoding = getattr(self, 'new_file_encoding_used', 'Unknown')
+        
+        encoding_mode = self.encoding_mode.get()
+        mode_text = {
+            'auto': 'Auto-detected',
+            'same': 'Same for both files',
+            'separate': 'Separate encodings'
+        }.get(encoding_mode, encoding_mode)
+        
+        # Create encoding info text
+        encoding_info = f"""📄 File Encoding Details:
+    Original File: {os.path.basename(self.old_file_path.get())} → {old_encoding}
+    New File: {os.path.basename(self.new_file_path.get())} → {new_encoding}
+    Mode: {mode_text}"""
+        
+        # Show the encoding info frame and update text
+        self.encoding_info_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.encoding_info_text.config(state=tk.NORMAL)
+        self.encoding_info_text.delete(1.0, tk.END)
+        self.encoding_info_text.insert(1.0, encoding_info)
+        
+        # Color code based on encoding match
+        if old_encoding == new_encoding:
+            # Same encoding - green background
+            self.encoding_info_text.config(background="#D4EDDA", foreground="#155724")
+        else:
+            # Different encodings - yellow background
+            self.encoding_info_text.config(background="#FFF3CD", foreground="#856404")
+        
+        self.encoding_info_text.config(state=tk.DISABLED)
     
     def _get_file_size(self, file_path):
         try:
+            if not os.path.exists(file_path):
+                return "File not found"
             size = os.path.getsize(file_path)
             if size < 1024:
                 return f"{size} bytes"
@@ -504,7 +761,9 @@ Options Used:
                 return f"{size / 1024:.1f} KB"
             else:
                 return f"{size / (1024 * 1024):.1f} MB"
-        except:
+        except (OSError, PermissionError) as e:
+            return f"Error: {str(e)}"
+        except Exception:
             return "Unknown"
     
     def _display_unified_diff(self, diff_lines):
@@ -638,7 +897,7 @@ Options Used:
                     title="Save Diff Report",
                     defaultextension=".html",
                     filetypes=[("HTML files", "*.html"), ("All files", "*.*")],
-                    initialname=f"diff_{old_name}_vs_{new_name}.html"
+                    initialfile=f"diff_{old_name}_vs_{new_name}.html"
                 )
                 if output_file:
                     self._save_html_diff(output_file, old_lines, new_lines)
@@ -647,7 +906,7 @@ Options Used:
                     title="Save Diff Report",
                     defaultextension=".txt",
                     filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
-                    initialname=f"diff_{old_name}_vs_{new_name}.txt"
+                    initialfile=f"diff_{old_name}_vs_{new_name}.txt"
                 )
                 if output_file:
                     self._save_text_diff(output_file, diff_lines)
@@ -694,6 +953,15 @@ Options Used:
         self.left_text.config(state=tk.DISABLED)
         self.right_text.config(state=tk.DISABLED)
         
+        # Hide encoding info
+        self.encoding_info_frame.pack_forget()
+        
+        # Clear stored encoding info
+        if hasattr(self, 'old_file_encoding_used'):
+            delattr(self, 'old_file_encoding_used')
+        if hasattr(self, 'new_file_encoding_used'):
+            delattr(self, 'new_file_encoding_used')
+        
         self.status_var.set("Ready")
         self.progress_var.set(0)
     
@@ -709,6 +977,10 @@ Options Used:
         except Exception as e:
             print(f"Error returning to Excel tool: {e}")
             self.root.destroy()  # Still close the window
+
+    def set_parent_launcher(self, parent_launcher):
+        """Set reference to parent launcher for proper window management"""
+        self.parent_launcher = parent_launcher
 
 def main():
     root = tk.Tk()
